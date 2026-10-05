@@ -1,0 +1,46 @@
+/*
+ * responsive.css — shared responsive overrides
+ *
+ * Each page already contains its own inline media queries.
+ * This file is referenced by every page so it must exist to
+ * avoid 404 errors. Add any cross-page responsive rules here.
+ */
+
+/* Prevent horizontal overflow on every page */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Smooth scrolling everywhere */
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Touch-friendly tap targets */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Prevent iOS input zoom (font-size < 16px triggers auto-zoom) */
+input, select, textarea {
+  font-size: max(16px, 1em);
+}
+
+/* Scrollbar styling — thin on all pages */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+*::-webkit-scrollbar       { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.32); }
+
+/* Safe area insets for notched phones */
+.header, header {
+  padding-left:  max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
