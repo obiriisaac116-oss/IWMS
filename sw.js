@@ -1,5 +1,5 @@
-**continue**/**
- * sw.js — DIT Inventory System Service Worker
+/**
+ * sw.js — DIT Inventory System Service Worker v2
  * Caches all pages and static assets for full offline access (24/7).
  *
  * Strategy: Cache-First for all local assets.
@@ -8,7 +8,7 @@
  * On fetch: serve from cache, fall back to network, then update cache.
  */
 
-const CACHE_NAME = 'dit-inventory-v1';
+const CACHE_NAME = 'dit-inventory-v2';
 
 // All local files to pre-cache on install
 const PRECACHE_URLS = [
@@ -25,6 +25,7 @@ const PRECACHE_URLS = [
   './responsive.css',
   './module-background.js',
   './message-admin.js',
+  './print-helper.js',
 ];
 
 // ── Install: pre-cache all local assets ──────────────────────────────────────

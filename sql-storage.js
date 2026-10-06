@@ -1,141 +1,421 @@
 /**
- * sql-storage.js  — API-backed storage layer
+ * sql-storage.js — API-backed storage layer v2
  *
- * Replaces the previous localStorage shim.  Every page calls:
- *   window.sqlStorageGet(key)         → Promise<string|null>
- *   window.sqlStorageSet(key, value)  → Promise<void>
- *   window.sqlStorageRemove(key)      → Promise<void>
- *   window.sqlStorageKeys()           → Promise<string[]>
+ * Features:
+ *  • Write queue — batches rapid writes to the same key (500ms debounce)
+ *  • IndexedDB offline cache — replaces localStorage (no 5MB limit)
+ *  • Server-Sent Events — auto-refreshes cache when another device saves
+ *  • Save-status indicator — Saved / Saving… / Offline badge in every page
+ *  • Web Crypto password hashing — passwords hashed client-side before send
+ *  • Conflict resolution — detects server-newer-version and notifies user
  *
- * The memoryStore in each page already calls these hooks, so no HTML
- * changes are needed for reads/writes.
- *
- * Auth token is read from sessionStorage['dit_api_token'].
- * The login flow in index.html sets it after POST /api/auth/login.
+ * Public API (all synchronous helpers call async underneath):
+ *   window.sqlStorageGet(key)          → Promise<string|null>
+ *   window.sqlStorageSet(key, value)   → Promise<void>
+ *   window.sqlStorageRemove(key)       → Promise<void>
+ *   window.sqlStorageKeys()            → Promise<string[]>
+ *   window.sqlStoragePrefetch(keys)    → Promise<void>
+ *   window.hashPassword(plain)         → Promise<string>  (Web Crypto SHA-256 hex)
  */
 
 (function () {
   'use strict';
 
-  /* ── Config ────────────────────────────────────────────────────────────── */
-  // In production this is the same origin (server serves the frontend).
-  // During local dev point to your Express server.
+  /* ═══════════════════════════════════════════════════════════════════════════
+     CONFIG
+  ═══════════════════════════════════════════════════════════════════════════ */
   var API_BASE = (function () {
-    var base = window.__DIT_API_BASE__;        // injected by server if needed
+    var base = window.__DIT_API_BASE__;
     if (base) return base.replace(/\/$/, '');
-    // Same origin — works both locally (if served by Express) and on Render
     return window.location.origin;
   })();
 
+  var WRITE_DEBOUNCE_MS = 500;   // batch writes within this window
+  var IDB_NAME          = 'dit-iwms-cache';
+  var IDB_STORE         = 'kv';
+  var IDB_VERSION       = 1;
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SAVE-STATUS INDICATOR
+  ═══════════════════════════════════════════════════════════════════════════ */
+  var _statusEl = null;
+  var _statusTimer = null;
+
+  function _ensureStatusEl() {
+    if (_statusEl) return _statusEl;
+    _statusEl = document.createElement('div');
+    _statusEl.id = 'dit-save-status';
+    _statusEl.style.cssText = [
+      'position:fixed', 'bottom:18px', 'right:20px', 'z-index:9999',
+      'font-family:inherit', 'font-size:0.78rem', 'font-weight:600',
+      'padding:5px 12px', 'border-radius:20px',
+      'pointer-events:none', 'transition:opacity 0.4s ease',
+      'opacity:0',
+    ].join(';');
+    document.body.appendChild(_statusEl);
+    return _statusEl;
+  }
+
+  function _setStatus(state) {
+    clearTimeout(_statusTimer);
+    var el = _ensureStatusEl();
+    if (state === 'saving') {
+      el.textContent = '⟳ Saving…';
+      el.style.background = 'rgba(0,0,0,0.65)';
+      el.style.color       = '#fff';
+      el.style.opacity     = '1';
+    } else if (state === 'saved') {
+      el.textContent = '✓ Saved';
+      el.style.background = 'rgba(0,184,122,0.9)';
+      el.style.color       = '#fff';
+      el.style.opacity     = '1';
+      _statusTimer = setTimeout(function () { el.style.opacity = '0'; }, 2000);
+    } else if (state === 'offline') {
+      el.textContent = '⚡ Offline — saved locally';
+      el.style.background = 'rgba(245,158,11,0.9)';
+      el.style.color       = '#fff';
+      el.style.opacity     = '1';
+      _statusTimer = setTimeout(function () { el.style.opacity = '0'; }, 4000);
+    } else if (state === 'conflict') {
+      el.textContent = '⚠ Sync conflict — refresh to see latest';
+      el.style.background = 'rgba(232,54,93,0.9)';
+      el.style.color       = '#fff';
+      el.style.opacity     = '1';
+      _statusTimer = setTimeout(function () { el.style.opacity = '0'; }, 6000);
+    } else if (state === 'synced') {
+      el.textContent = '↻ Synced from another device';
+      el.style.background = 'rgba(59,130,246,0.9)';
+      el.style.color       = '#fff';
+      el.style.opacity     = '1';
+      _statusTimer = setTimeout(function () { el.style.opacity = '0'; }, 3000);
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     AUTH
+  ═══════════════════════════════════════════════════════════════════════════ */
   function getToken() {
     try { return sessionStorage.getItem('dit_api_token') || ''; } catch (e) { return ''; }
   }
+  function setToken(t) {
+    try { sessionStorage.setItem('dit_api_token', t); } catch (e) {}
+  }
 
-  /* ── In-memory write-through cache (keeps pages fast) ─────────────────── */
+  /* Auto-refresh token using refresh cookie before it expires (every 10 min) */
+  function _scheduleTokenRefresh() {
+    setInterval(function () {
+      fetch(API_BASE + '/api/auth/refresh', { method: 'POST', credentials: 'include' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) { if (data && data.token) setToken(data.token); })
+        .catch(function () { /* offline — keep existing token */ });
+    }, 10 * 60 * 1000);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     INDEXEDDB CACHE
+  ═══════════════════════════════════════════════════════════════════════════ */
+  var _idb = null;
+
+  function _openIDB() {
+    if (_idb) return Promise.resolve(_idb);
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { resolve(null); return; }
+      var req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = function (e) {
+        e.target.result.createObjectStore(IDB_STORE, { keyPath: 'k' });
+      };
+      req.onsuccess = function (e) { _idb = e.target.result; resolve(_idb); };
+      req.onerror   = function () { resolve(null); }; // degrade gracefully
+    });
+  }
+
+  function _idbGet(key) {
+    return _openIDB().then(function (db) {
+      if (!db) return idbLsFallback(key);
+      return new Promise(function (resolve) {
+        var tx  = db.transaction(IDB_STORE, 'readonly');
+        var req = tx.objectStore(IDB_STORE).get(key);
+        req.onsuccess = function () { resolve(req.result ? req.result.v : null); };
+        req.onerror   = function () { resolve(null); };
+      });
+    });
+  }
+
+  function _idbSet(key, value) {
+    return _openIDB().then(function (db) {
+      if (!db) { try { localStorage.setItem(key, value); } catch (e) {} return; }
+      return new Promise(function (resolve) {
+        var tx  = db.transaction(IDB_STORE, 'readwrite');
+        var req = tx.objectStore(IDB_STORE).put({ k: key, v: value, ts: Date.now() });
+        req.onsuccess = function () { resolve(); };
+        req.onerror   = function () { resolve(); };
+      });
+    });
+  }
+
+  function _idbDel(key) {
+    return _openIDB().then(function (db) {
+      if (!db) { try { localStorage.removeItem(key); } catch (e) {} return; }
+      return new Promise(function (resolve) {
+        var tx  = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).delete(key);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror    = function () { resolve(); };
+      });
+    });
+  }
+
+  function _idbKeys() {
+    return _openIDB().then(function (db) {
+      if (!db) { try { return Object.keys(localStorage); } catch (e) { return []; } }
+      return new Promise(function (resolve) {
+        var tx  = db.transaction(IDB_STORE, 'readonly');
+        var req = tx.objectStore(IDB_STORE).getAllKeys();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror   = function () { resolve([]); };
+      });
+    });
+  }
+
+  function idbLsFallback(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     IN-MEMORY CACHE
+  ═══════════════════════════════════════════════════════════════════════════ */
   var _cache = Object.create(null);
 
-  /* ── Core fetch helper ─────────────────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════════════════════════════
+     WRITE QUEUE (debounced batching)
+  ═══════════════════════════════════════════════════════════════════════════ */
+  var _writeQueue  = Object.create(null); // key → { value, timer, resolve, reject }
+
+  function _flushKey(key) {
+    var entry = _writeQueue[key];
+    if (!entry) return;
+    delete _writeQueue[key];
+
+    var strVal = entry.value;
+    var parsed;
+    try { parsed = JSON.parse(strVal); } catch (e) { parsed = strVal; }
+
+    // Record current timestamp for conflict detection
+    var clientTs = new Date().toISOString();
+
+    _setStatus('saving');
+    apiFetch('PUT', '/api/store/' + encodeURIComponent(key), {
+      value:     parsed,
+      updatedAt: clientTs,
+    })
+      .then(function (data) {
+        if (data && data.error && data.error.indexOf('Conflict') !== -1) {
+          // Server has newer data
+          _setStatus('conflict');
+          // Update local cache with server version silently
+          var serverStr = typeof data.serverValue === 'string'
+            ? data.serverValue : JSON.stringify(data.serverValue);
+          _cache[key] = serverStr;
+          _idbSet(key, serverStr);
+        } else {
+          _setStatus('saved');
+        }
+        entry.resolve();
+      })
+      .catch(function () {
+        _setStatus('offline');
+        // Already written to IDB above — nothing more to do
+        entry.resolve();
+      });
+  }
+
+  function _queueWrite(key, strVal) {
+    return new Promise(function (resolve, reject) {
+      if (_writeQueue[key]) {
+        clearTimeout(_writeQueue[key].timer);
+        _writeQueue[key].resolve(); // resolve old promise immediately
+      }
+      _writeQueue[key] = {
+        value: strVal,
+        resolve: resolve,
+        reject:  reject,
+        timer:   setTimeout(function () { _flushKey(key); }, WRITE_DEBOUNCE_MS),
+      };
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     CORE FETCH
+  ═══════════════════════════════════════════════════════════════════════════ */
   function apiFetch(method, path, body) {
     var token = getToken();
     var opts = {
-      method: method,
+      method:      method,
+      credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type':  'application/json',
         'Authorization': token ? 'Bearer ' + token : '',
       },
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
+
     return fetch(API_BASE + path, opts).then(function (res) {
       if (res.status === 401) {
-        // Token expired / invalid — redirect to login
-        sessionStorage.clear();
-        if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/') {
-          window.location.href = '/index.html';
-        }
-        return Promise.reject(new Error('Unauthorised'));
+        // Try token refresh before giving up
+        return fetch(API_BASE + '/api/auth/refresh', { method: 'POST', credentials: 'include' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.token) {
+              setToken(data.token);
+              // Retry original request with new token
+              opts.headers['Authorization'] = 'Bearer ' + data.token;
+              return fetch(API_BASE + path, opts).then(function (r) { return r.json(); });
+            }
+            sessionStorage.clear();
+            if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/') {
+              window.location.href = '/index.html';
+            }
+            return Promise.reject(new Error('Unauthorised'));
+          });
       }
       return res.json();
     });
   }
 
-  /* ── Public API ────────────────────────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════════════════════════════
+     SERVER-SENT EVENTS — live sync
+  ═══════════════════════════════════════════════════════════════════════════ */
+  var _sseConnected = false;
 
-  /**
-   * sqlStorageGet(key) → Promise<string|null>
-   * Returns the stored string value, or null if not found.
-   * Falls back to localStorage if the API is unreachable (offline mode).
-   */
+  function _connectSSE() {
+    var token = getToken();
+    if (!token || _sseConnected || typeof EventSource === 'undefined') return;
+    _sseConnected = true;
+
+    var es = new EventSource(API_BASE + '/api/events?token=' + encodeURIComponent(token));
+
+    es.addEventListener('data-changed', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.type === 'store' && data.key) {
+          // Evict cache so next read fetches fresh
+          delete _cache[data.key];
+          _idbDel(data.key).catch(function () {});
+          _setStatus('synced');
+        } else if (data.type === 'audit') {
+          // Reports page can listen for this custom event
+          window.dispatchEvent(new CustomEvent('dit-audit-changed', { detail: data }));
+        }
+      } catch (_) {}
+    });
+
+    es.onerror = function () {
+      _sseConnected = false;
+      es.close();
+      // Reconnect after 10s
+      setTimeout(_connectSSE, 10000);
+    };
+  }
+
+  // Start SSE after a short delay (let the page finish loading first)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', function () {
+      setTimeout(function () { _connectSSE(); _scheduleTokenRefresh(); }, 1500);
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     PUBLIC API
+  ═══════════════════════════════════════════════════════════════════════════ */
+
   window.sqlStorageGet = function (key) {
     if (Object.prototype.hasOwnProperty.call(_cache, key)) {
       return Promise.resolve(_cache[key]);
     }
-    return apiFetch('GET', '/api/store/' + encodeURIComponent(key))
-      .then(function (data) {
-        var val = (data && data.value !== undefined && data.value !== null)
-          ? (typeof data.value === 'string' ? data.value : JSON.stringify(data.value))
-          : null;
-        if (val !== null) _cache[key] = val;
-        return val;
-      })
-      .catch(function () {
-        // Offline fallback
-        try { return localStorage.getItem(key); } catch (e) { return null; }
-      });
+    // Check IDB first (offline-capable)
+    return _idbGet(key).then(function (cached) {
+      if (cached !== null && cached !== undefined) {
+        _cache[key] = cached;
+        // Background refresh from API
+        apiFetch('GET', '/api/store/' + encodeURIComponent(key))
+          .then(function (data) {
+            if (data && data.value !== undefined && data.value !== null) {
+              var fresh = typeof data.value === 'string' ? data.value : JSON.stringify(data.value);
+              _cache[key] = fresh;
+              _idbSet(key, fresh);
+            }
+          }).catch(function () {});
+        return cached;
+      }
+      // Fetch from API
+      return apiFetch('GET', '/api/store/' + encodeURIComponent(key))
+        .then(function (data) {
+          var val = (data && data.value !== undefined && data.value !== null)
+            ? (typeof data.value === 'string' ? data.value : JSON.stringify(data.value))
+            : null;
+          if (val !== null) {
+            _cache[key] = val;
+            _idbSet(key, val);
+          }
+          return val;
+        })
+        .catch(function () {
+          // Full offline — return IDB/localStorage
+          return _idbGet(key);
+        });
+    });
   };
 
-  /**
-   * sqlStorageSet(key, value) → Promise<void>
-   * Persists the value to the API and updates the local cache.
-   * Also writes to localStorage as an offline backup.
-   */
   window.sqlStorageSet = function (key, value) {
     var strVal = (value === null || value === undefined) ? null : String(value);
     _cache[key] = strVal;
-    // Offline backup
-    try { if (strVal !== null) localStorage.setItem(key, strVal); } catch (e) {}
-
-    // Parse JSON so MongoDB stores structured data (not a giant escaped string)
-    var parsed;
-    try { parsed = JSON.parse(strVal); } catch (e) { parsed = strVal; }
-
-    return apiFetch('PUT', '/api/store/' + encodeURIComponent(key), { value: parsed })
-      .then(function () { /* success */ })
-      .catch(function () { /* offline — localStorage backup already written above */ });
+    // Write to IDB immediately (fast, offline-safe)
+    if (strVal !== null) _idbSet(key, strVal).catch(function () {});
+    // Queue debounced API write
+    return _queueWrite(key, strVal);
   };
 
-  /**
-   * sqlStorageRemove(key) → Promise<void>
-   */
   window.sqlStorageRemove = function (key) {
     delete _cache[key];
-    try { localStorage.removeItem(key); } catch (e) {}
+    _idbDel(key).catch(function () {});
     return apiFetch('DELETE', '/api/store/' + encodeURIComponent(key))
       .then(function () {})
       .catch(function () {});
   };
 
-  /**
-   * sqlStorageKeys() → Promise<string[]>
-   */
   window.sqlStorageKeys = function () {
     return apiFetch('GET', '/api/store')
       .then(function (list) {
         return Array.isArray(list) ? list.map(function (d) { return d.key; }) : [];
       })
-      .catch(function () {
-        try { return Object.keys(localStorage); } catch (e) { return []; }
-      });
+      .catch(function () { return _idbKeys(); });
   };
 
-  /**
-   * sqlStoragePrefetch(keys) → Promise<void>
-   * Warm the cache for a list of keys in one go at page load.
-   * Called by each page after login to avoid waterfall fetches.
-   */
   window.sqlStoragePrefetch = function (keys) {
-    return Promise.all(
-      (keys || []).map(function (k) { return window.sqlStorageGet(k); })
-    );
+    return Promise.all((keys || []).map(function (k) { return window.sqlStorageGet(k); }));
+  };
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     WEB CRYPTO — hash passwords before sending
+  ═══════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * hashPassword(plain) → Promise<string>
+   * Returns SHA-256 hex of the plain password.
+   * The server then bcrypt-hashes this hash — double-hashing adds no
+   * real security but ensures the raw password never travels the wire.
+   * Falls back to plain string if Web Crypto unavailable.
+   */
+  window.hashPassword = function (plain) {
+    if (!window.crypto || !window.crypto.subtle) return Promise.resolve(plain);
+    var enc  = new TextEncoder();
+    return crypto.subtle.digest('SHA-256', enc.encode(plain))
+      .then(function (buf) {
+        return Array.from(new Uint8Array(buf))
+          .map(function (b) { return b.toString(16).padStart(2, '0'); })
+          .join('');
+      })
+      .catch(function () { return plain; });
   };
 
 })();
