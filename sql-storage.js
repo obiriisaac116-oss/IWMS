@@ -396,19 +396,18 @@
   };
 
   /* ═══════════════════════════════════════════════════════════════════════════
-     WEB CRYPTO — hash passwords before sending
+     WEB CRYPTO — kept as utility but NOT used for login passwords
+     (HTTPS already protects the wire; double-hashing breaks account migration)
   ═══════════════════════════════════════════════════════════════════════════ */
 
   /**
    * hashPassword(plain) → Promise<string>
-   * Returns SHA-256 hex of the plain password.
-   * The server then bcrypt-hashes this hash — double-hashing adds no
-   * real security but ensures the raw password never travels the wire.
+   * Available for future use. Not called during login.
    * Falls back to plain string if Web Crypto unavailable.
    */
   window.hashPassword = function (plain) {
     if (!window.crypto || !window.crypto.subtle) return Promise.resolve(plain);
-    var enc  = new TextEncoder();
+    var enc = new TextEncoder();
     return crypto.subtle.digest('SHA-256', enc.encode(plain))
       .then(function (buf) {
         return Array.from(new Uint8Array(buf))

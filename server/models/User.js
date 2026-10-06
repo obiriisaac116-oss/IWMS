@@ -12,26 +12,16 @@ const userSchema = new mongoose.Schema({
   department:           { type: String, default: '' },
 }, { timestamps: true });
 
-// Hash password before saving
-// Passwords arrive either as plain text (seed) or SHA-256 hex (from Web Crypto).
-// Either way bcrypt-hash them at the server level.
+// Hash password before saving (plain text → bcrypt)
 userSchema.pre('save', async function (next) {
   if (!this.isModified('passwordHash')) return next();
   this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
   next();
 });
 
-// Compare: try both direct bcrypt compare (plain/seed) and SHA-256 pre-hashed
-userSchema.methods.verifyPassword = async function (incoming) {
-  // Direct bcrypt compare (covers plain text seeds + old accounts)
-  const direct = await bcrypt.compare(incoming, this.passwordHash);
-  if (direct) return true;
-  // Also try SHA-256 hex of the incoming value (Web Crypto client path)
-  try {
-    const { createHash } = require('crypto');
-    const hashed = createHash('sha256').update(incoming).digest('hex');
-    return bcrypt.compare(hashed, this.passwordHash);
-  } catch (_) { return false; }
+// Compare plain password to bcrypt hash
+userSchema.methods.verifyPassword = function (plain) {
+  return bcrypt.compare(plain, this.passwordHash);
 };
 
 // Never expose hash in API responses

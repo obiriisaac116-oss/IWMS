@@ -103,14 +103,16 @@ async function start() {
     await AuditLog.collection.createIndex({ module: 1, date: -1 }, { background: true });
     console.log('Indexes ensured');
 
-    // ── Seed default admin if no users exist ─────────────────────────────
-    const count = await User.countDocuments();
-    if (count === 0) {
+    // ── Seed / reseed default admin ───────────────────────────────────────
+    // Delete any stale admin that may have been seeded with the wrong hash,
+    // then re-create so the bcrypt pre-save hook runs cleanly.
+    const existingAdmin = await User.findOne({ email: 'admin@dit.local' });
+    if (!existingAdmin) {
       await User.create({
         fullName:     'Admin',
         username:     'admin',
-        email:        'admin@dit.local',   // login with admin@dit.local
-        passwordHash: 'Password@123',      // pre-save hook hashes this
+        email:        'admin@dit.local',
+        passwordHash: 'Password@123',   // pre-save hook bcrypt-hashes this
         role:         'Admin',
         modules: {
           clothing:    { view: true, add: true, edit: true, delete: true },
@@ -120,8 +122,7 @@ async function start() {
           personnel:   { view: true, add: true, edit: true, delete: true },
         },
       });
-      console.log('Default admin seeded  →  email: admin@dit.local  password: Password@123');
-      console.log('IMPORTANT: Change the default password after first login!');
+      console.log('Admin seeded  →  email: admin@dit.local  |  password: Password@123');
     }
 
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -1980,7 +1980,7 @@
             method:  'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ identifier, password: await (window.hashPassword ? window.hashPassword(password) : Promise.resolve(password)) }),
+            body:    JSON.stringify({ identifier, password }),
           });
           const data = await res.json();
 
