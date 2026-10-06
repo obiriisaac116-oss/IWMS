@@ -13,6 +13,6 @@ services:
       - key: MONGODB_URI
         value: mongodb+srv://obiriisaac116_db_user:fX6n8YhminCE8Uq1@cluster0.8c87k8n.mongodb.net/iwms?retryWrites=true&w=majority&appName=Cluster0
       - key: JWT_SECRET
-        value: e2380304847f47f8151465e4558b0a6b32bc908718aa8f8215e993a1aa817309d54081447be2be6a9ef9884bb3f4eca3ad432a78aae161c76e65a1006fdffe92
+        generateValue: true
       - key: CLIENT_ORIGIN
-        value: https://iwms-server.onrender.com
+        value: https://iwms-p1ru.onrender.com

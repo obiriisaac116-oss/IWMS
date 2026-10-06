@@ -49,7 +49,11 @@ app.get('*', (_req, res) => {
 // ── MongoDB + start ───────────────────────────────────────────────────────────
 async function start() {
   if (!process.env.MONGODB_URI) {
-    console.error('MONGODB_URI is not set. Add it to .env or Render environment variables.');
+    console.error('FATAL: MONGODB_URI is not set. Add it to Render environment variables.');
+    process.exit(1);
+  }
+  if (!process.env.JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET is not set. Add it to Render environment variables.');
     process.exit(1);
   }
 
