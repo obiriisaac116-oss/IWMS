@@ -1968,22 +1968,54 @@
       async function handleLogin(e) {
         e.preventDefault();
         const identifier = document.getElementById("loginUser").value.trim().toLowerCase();
-        const password = document.getElementById("loginPass").value;
-        const errorDiv = document.getElementById("loginError");
-        const users = await getUsers();
-        const user = users.find(
-          (u) =>
-            (u.email.toLowerCase() === identifier || (u.username || "").toLowerCase() === identifier) &&
-            u.password === password
-        );
+        const password   = document.getElementById("loginPass").value;
+        const errorDiv   = document.getElementById("loginError");
+        const btn        = e.target.querySelector('button[type="submit"]') || e.target.querySelector('button');
 
-        if (user) {
-          sessionStorage.setItem("loggedInUser", JSON.stringify(user));
-          sessionStorage.setItem("username", user.username || user.fullName || user.email);
-          if (isAdminRole(user.role)) sessionStorage.setItem("isAdminSession", "true");
-          window.location.href = "dashboard.html";
-        } else {
-          errorDiv.style.display = "block";
+        errorDiv.style.display = 'none';
+        if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+
+        try {
+          const res  = await fetch('/api/auth/login', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ identifier, password }),
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            errorDiv.textContent  = data.error || 'Invalid username or password.';
+            errorDiv.style.display = 'block';
+            if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+            return;
+          }
+
+          // Store JWT so sql-storage.js can attach it to every API call
+          sessionStorage.setItem('dit_api_token', data.token);
+          sessionStorage.setItem('loggedInUser',   JSON.stringify(data.user));
+          sessionStorage.setItem('username',        data.user.username || data.user.fullName || data.user.email);
+          if (data.user.role === 'Admin' || data.user.role === 'Administrator') {
+            sessionStorage.setItem('isAdminSession', 'true');
+          }
+          window.location.href = 'dashboard.html';
+
+        } catch (err) {
+          console.error('Login fetch error:', err);
+          // Fallback: try local user list (offline mode)
+          const users = await getUsers();
+          const user  = users.find(
+            (u) => (u.email.toLowerCase() === identifier || (u.username || '').toLowerCase() === identifier) && u.password === password
+          );
+          if (user) {
+            sessionStorage.setItem('loggedInUser', JSON.stringify(user));
+            sessionStorage.setItem('username', user.username || user.fullName || user.email);
+            if (isAdminRole(user.role)) sessionStorage.setItem('isAdminSession', 'true');
+            window.location.href = 'dashboard.html';
+          } else {
+            errorDiv.textContent  = 'Could not reach the server. Check your connection.';
+            errorDiv.style.display = 'block';
+            if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+          }
         }
       }
 

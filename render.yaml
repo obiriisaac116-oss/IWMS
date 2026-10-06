@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: iwms-server
+    env: node
+    region: oregon          # change to: frankfurt, singapore, ohio — whichever is closest
+    rootDir: server         # Express app lives in /server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false         # Set this manually in Render dashboard (never commit the real URI)
+      - key: JWT_SECRET
+        generateValue: true # Render auto-generates a secure random string
+      - key: CLIENT_ORIGIN
+        sync: false         # Set to your Render web service URL after first deploy
