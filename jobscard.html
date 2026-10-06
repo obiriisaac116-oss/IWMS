@@ -966,8 +966,13 @@
                 input.value = '';
                 return;
             }
+            // Show feedback immediately — large JSON files take time
+            showToast('Importing backup, please wait…', 'success');
             try {
-                const backup = JSON.parse(await file.text());
+                const text = await file.text();
+                // Yield to browser before heavy JSON.parse
+                await new Promise(r => setTimeout(r, 0));
+                const backup = JSON.parse(text);
                 const validJobs = Array.isArray(backup.jobs) && backup.jobs.every(function(job) {
                     return job && typeof job === 'object' && Number.isSafeInteger(job.id) && typeof job.no === 'string' && typeof job.title === 'string' && typeof job.desc === 'string' && typeof job.status === 'string' && job.fullData && typeof job.fullData === 'object' && !Array.isArray(job.fullData);
                 });
@@ -977,10 +982,15 @@
                 if (!confirm('Import ' + backup.jobs.length + ' job card(s)? This will replace the current job card data.')) return;
                 jobs = backup.jobs.map(function(job) { return { ...job, userId: job.userId || getCurrentUserId() }; });
                 jobCounter = backup.jobCounter;
-                saveToStorage();
+                // Render immediately so UI feels fast, then save in background
                 renderJobsTable();
                 logActivity('Job card backup imported', backup.jobs.length + ' job card(s) restored');
-                showToast('Job card backup imported.', 'success');
+                showToast('Job cards imported. Saving…', 'success');
+                // Save async — don't block the UI
+                setTimeout(() => {
+                    saveToStorage();
+                    showToast('Job card backup saved successfully.', 'success');
+                }, 0);
             } catch (error) {
                 showToast('Could not import this backup. Choose a valid job card backup file.', 'error');
             } finally {

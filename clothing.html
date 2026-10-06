@@ -9384,22 +9384,25 @@
         if (isExcel) {
           reader = new FileReader();
           reader.onload = function (e) {
-            try {
-              if (typeof XLSX === "undefined") throw new Error("Excel library not loaded.");
-              var data = new Uint8Array(e.target.result);
-              var workbook = XLSX.read(data, { type: "array" });
-              var firstSheetName = workbook.SheetNames[0];
-              var worksheet = workbook.Sheets[firstSheetName];
-              var jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-              if (!jsonRows.length) throw new Error("No data rows found");
-              processImportData(Object.keys(jsonRows[0]), jsonRows);
-            } catch (err) {
-              document.getElementById("importError").textContent = err.message || "Failed to parse Excel file";
-              document.getElementById("importError").classList.add("visible");
-              document.getElementById("importPreview").style.display = "none";
-              document.getElementById("confirmImportBtn").disabled = true;
-              importParsedData = null;
-            }
+            // Yield before heavy XLSX parse so browser stays responsive
+            setTimeout(function() {
+              try {
+                if (typeof XLSX === "undefined") throw new Error("Excel library not loaded.");
+                var data = new Uint8Array(e.target.result);
+                var workbook = XLSX.read(data, { type: "array" });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+                var jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+                if (!jsonRows.length) throw new Error("No data rows found");
+                processImportData(Object.keys(jsonRows[0]), jsonRows);
+              } catch (err) {
+                document.getElementById("importError").textContent = err.message || "Failed to parse Excel file";
+                document.getElementById("importError").classList.add("visible");
+                document.getElementById("importPreview").style.display = "none";
+                document.getElementById("confirmImportBtn").disabled = true;
+                importParsedData = null;
+              }
+            }, 0);
           };
           reader.readAsArrayBuffer(file);
         } else if (isDocx) {
@@ -9683,17 +9686,10 @@
             } else {
               var existingCfg = clothingConfig[item.key];
               if (!item.isToggle && Array.isArray(existingCfg.sizes) && item.sizes.length > 0) {
-                var sizeSet = new Set(
-                  existingCfg.sizes.map(function (s) {
-                    return String(s).toUpperCase();
-                  }),
-                );
+                var sizeSet = new Set(existingCfg.sizes.map(function (s) { return String(s).toUpperCase(); }));
                 var addedSize = false;
                 item.sizes.forEach(function (s) {
-                  if (!sizeSet.has(String(s).toUpperCase())) {
-                    existingCfg.sizes.push(s);
-                    addedSize = true;
-                  }
+                  if (!sizeSet.has(String(s).toUpperCase())) { existingCfg.sizes.push(s); addedSize = true; }
                 });
                 if (addedSize) existingCfg.sizes = sortSizes(existingCfg.sizes);
               }
@@ -9701,117 +9697,110 @@
           });
           saveClothingConfig();
         }
+
         var clothingKeys = Object.keys(clothingConfig);
-        var newCount = 0,
-          updateCount = 0,
-          skippedEmptySvc = 0;
+        var newCount = 0, updateCount = 0, skippedEmptySvc = 0;
         var mergedCount = (importParsedData.mergedItems && importParsedData.mergedItems.length) || 0;
-        importParsedData.rows.forEach(function (mappedData) {
-          if (!mappedData || !mappedData._svcNo) {
-            skippedEmptySvc++;
-            return;
-          }
-          var svcNo = mappedData._svcNo;
-          var existingIndex = personnelData.findIndex(function (p) {
-            return p.svcNo === svcNo;
-          });
-          var isUpdate = existingIndex > -1;
-          var pd = isUpdate ? JSON.parse(JSON.stringify(personnelData[existingIndex])) : {};
-          pd.svcNo = svcNo;
-          if (mappedData.rank !== undefined && mappedData.rank !== "") {
-            pd.rank = resolveRank(mappedData.rank);
-          }
-          if (mappedData.name !== undefined && mappedData.name !== "") {
-            pd.rank = pd.rank || "";
-            pd.name = formatName(pd.rank, mappedData.name);
-          }
-          if (mappedData.unit !== undefined && mappedData.unit !== "") {
-            var unitVal = mappedData.unit.toUpperCase().trim();
-            if (["GA", "GHANA ARMY", "ARMY"].includes(unitVal)) unitVal = "ARMY";
-            else if (["GN", "GHANA NAVY", "NAVY"].includes(unitVal)) unitVal = "NAVY";
-            else if (["GAF", "GHANA AIR FORCE", "AIRFORCE", "AIR FORCE", "GH AIR FORCE"].includes(unitVal))
-              unitVal = "AIR FORCE";
-            pd.unit = unitVal;
-          }
-          if (mappedData.cloc !== undefined && mappedData.cloc !== "") {
-            pd.cloc = normalizeCloc(mappedData.cloc);
-          }
-          if (mappedData.dept !== undefined && mappedData.dept !== "") {
-            pd.dept = mappedData.dept.trim();
-          }
-          if (mappedData.sex !== undefined && mappedData.sex !== "") {
-            var sexVal = String(mappedData.sex).trim().toUpperCase();
-            if (sexVal === "M" || sexVal === "MALE" || sexVal === "MAN") pd.sex = "Male";
-            else if (sexVal === "F" || sexVal === "FEMALE" || sexVal === "WOMAN") pd.sex = "Female";
-          }
-          if (!isUpdate) {
-            pd.userId = currentLoggedInUser;
-          }
-          clothingKeys.forEach(function (k) {
-            var rawImportVal = mappedData[k];
-            var hasImportValue = rawImportVal !== undefined && String(rawImportVal).trim() !== "";
-            if (hasImportValue) {
-              if (isToggleItem(k)) {
-                var lowerVal = String(rawImportVal).toLowerCase().trim();
-                pd[k] = lowerVal === "issued" || lowerVal === "true" || lowerVal === "1" || lowerVal === "yes";
-                setItemIssued(pd, k, pd[k]);
-              } else {
-                var sizeVal = toAllCaps(String(rawImportVal).trim());
-                pd[k] = sizeVal;
-                setItemIssued(pd, k, false);
-                if (sizeVal && clothingConfig[k] && Array.isArray(clothingConfig[k].sizes)) {
-                  if (clothingConfig[k].sizes.indexOf(sizeVal) === -1) {
-                    clothingConfig[k].sizes.push(sizeVal);
-                    clothingConfig[k].sizes = sortSizes(clothingConfig[k].sizes);
-                    if (!autoAddedSizes[k]) autoAddedSizes[k] = new Set();
-                    autoAddedSizes[k].add(sizeVal);
+        var allRows = importParsedData.rows.slice();
+        var capturedData = importParsedData;
+
+        // Show immediate feedback
+        showToast("Importing " + allRows.length + " records, please wait…", "info", 4000);
+
+        var CHUNK = 100;
+        var offset = 0;
+
+        function processChunk() {
+          var chunk = allRows.slice(offset, offset + CHUNK);
+          chunk.forEach(function (mappedData) {
+            if (!mappedData || !mappedData._svcNo) { skippedEmptySvc++; return; }
+            var svcNo = mappedData._svcNo;
+            var existingIndex = personnelData.findIndex(function (p) { return p.svcNo === svcNo; });
+            var isUpdate = existingIndex > -1;
+            var pd = isUpdate ? JSON.parse(JSON.stringify(personnelData[existingIndex])) : {};
+            pd.svcNo = svcNo;
+            if (mappedData.rank !== undefined && mappedData.rank !== "") pd.rank = resolveRank(mappedData.rank);
+            if (mappedData.name !== undefined && mappedData.name !== "") {
+              pd.rank = pd.rank || "";
+              pd.name = formatName(pd.rank, mappedData.name);
+            }
+            if (mappedData.unit !== undefined && mappedData.unit !== "") {
+              var unitVal = mappedData.unit.toUpperCase().trim();
+              if (["GA", "GHANA ARMY", "ARMY"].includes(unitVal)) unitVal = "ARMY";
+              else if (["GN", "GHANA NAVY", "NAVY"].includes(unitVal)) unitVal = "NAVY";
+              else if (["GAF", "GHANA AIR FORCE", "AIRFORCE", "AIR FORCE", "GH AIR FORCE"].includes(unitVal)) unitVal = "AIR FORCE";
+              pd.unit = unitVal;
+            }
+            if (mappedData.cloc !== undefined && mappedData.cloc !== "") pd.cloc = normalizeCloc(mappedData.cloc);
+            if (mappedData.dept !== undefined && mappedData.dept !== "") pd.dept = mappedData.dept.trim();
+            if (mappedData.sex !== undefined && mappedData.sex !== "") {
+              var sexVal = String(mappedData.sex).trim().toUpperCase();
+              if (sexVal === "M" || sexVal === "MALE" || sexVal === "MAN") pd.sex = "Male";
+              else if (sexVal === "F" || sexVal === "FEMALE" || sexVal === "WOMAN") pd.sex = "Female";
+            }
+            if (!isUpdate) pd.userId = currentLoggedInUser;
+            clothingKeys.forEach(function (k) {
+              var rawImportVal = mappedData[k];
+              var hasImportValue = rawImportVal !== undefined && String(rawImportVal).trim() !== "";
+              if (hasImportValue) {
+                if (isToggleItem(k)) {
+                  var lowerVal = String(rawImportVal).toLowerCase().trim();
+                  pd[k] = lowerVal === "issued" || lowerVal === "true" || lowerVal === "1" || lowerVal === "yes";
+                  setItemIssued(pd, k, pd[k]);
+                } else {
+                  var sizeVal = toAllCaps(String(rawImportVal).trim());
+                  pd[k] = sizeVal;
+                  setItemIssued(pd, k, false);
+                  if (sizeVal && clothingConfig[k] && Array.isArray(clothingConfig[k].sizes)) {
+                    if (clothingConfig[k].sizes.indexOf(sizeVal) === -1) {
+                      clothingConfig[k].sizes.push(sizeVal);
+                      clothingConfig[k].sizes = sortSizes(clothingConfig[k].sizes);
+                      if (!autoAddedSizes[k]) autoAddedSizes[k] = new Set();
+                      autoAddedSizes[k].add(sizeVal);
+                    }
                   }
                 }
+              } else if (!isUpdate) {
+                if (isToggleItem(k)) { pd[k] = false; setItemIssued(pd, k, false); }
+                else { pd[k] = ""; setItemIssued(pd, k, false); }
               }
-            } else if (!isUpdate) {
-              if (isToggleItem(k)) {
-                pd[k] = false;
-                setItemIssued(pd, k, false);
-              } else {
-                pd[k] = "";
-                setItemIssued(pd, k, false);
-              }
-            }
+            });
+            ensureIssuedFields(pd);
+            if (isUpdate) { personnelData[existingIndex] = pd; updateCount++; }
+            else { personnelData.push(pd); newCount++; }
           });
-          ensureIssuedFields(pd);
-          if (isUpdate) {
-            personnelData[existingIndex] = pd;
-            updateCount++;
+          offset += CHUNK;
+
+          if (offset < allRows.length) {
+            // Yield between chunks so UI stays alive
+            setTimeout(processChunk, 0);
           } else {
-            personnelData.push(pd);
-            newCount++;
+            // All rows processed — save and refresh
+            saveClothingConfig();
+            recalculateCounters();
+            saveData();
+            updateClocDropdownOptions();
+            closeImportModal();
+            refresh();
+            var msg = "Import complete: " + newCount + " new, " + updateCount + " updated";
+            if (skippedEmptySvc > 0) msg += ", " + skippedEmptySvc + " skipped (no Svc No.)";
+            if (newItemsCreated > 0) msg += ". Created " + newItemsCreated + " new item" + (newItemsCreated > 1 ? "s" : "");
+            if (mergedCount > 0) msg += ". Merged " + mergedCount + " column" + (mergedCount > 1 ? "s" : "") + " to existing items";
+            if (capturedData.numberingRowSkipped) msg += ". Numbering row was auto-skipped";
+            showToast(msg, "success", 5000);
+            Object.keys(autoAddedSizes).forEach(function (k) {
+              var cfg = clothingConfig[k];
+              if (cfg && autoAddedSizes[k].size > 0) {
+                var sizesList = Array.from(autoAddedSizes[k]).join(", ");
+                showToast("Auto-added size" + (autoAddedSizes[k].size > 1 ? "s" : "") + " to " + cfg.name + ": " + sizesList, "warning", 6000);
+              }
+            });
+            importParsedData = null;
           }
-        });
-        saveClothingConfig();
-        recalculateCounters();
-        saveData();
-        updateClocDropdownOptions();
-        closeImportModal();
-        refresh();
-        var msg = "Import complete: " + newCount + " new, " + updateCount + " updated";
-        if (skippedEmptySvc > 0) msg += ", " + skippedEmptySvc + " skipped (no Svc No.)";
-        if (newItemsCreated > 0) msg += ". Created " + newItemsCreated + " new item" + (newItemsCreated > 1 ? "s" : "");
-        if (mergedCount > 0)
-          msg += ". Merged " + mergedCount + " column" + (mergedCount > 1 ? "s" : "") + " to existing items";
-        if (importParsedData.numberingRowSkipped) msg += ". Numbering row was auto-skipped";
-        showToast(msg, "success", 5000);
-        Object.keys(autoAddedSizes).forEach(function (k) {
-          var cfg = clothingConfig[k];
-          if (cfg && autoAddedSizes[k].size > 0) {
-            var sizesList = Array.from(autoAddedSizes[k]).join(", ");
-            showToast(
-              "Auto-added size" + (autoAddedSizes[k].size > 1 ? "s" : "") + " to " + cfg.name + ": " + sizesList,
-              "warning",
-              6000,
-            );
-          }
-        });
-        importParsedData = null;
+        }
+
+        // Yield before first chunk so the "please wait" toast renders
+        setTimeout(processChunk, 0);
       }
 
       document.getElementById("importModalBackdrop").onclick = function (e) {

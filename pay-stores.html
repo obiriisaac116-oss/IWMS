@@ -2808,10 +2808,23 @@
           return;
         }
 
+        // Show feedback immediately
+        showToast("Reading file, please wait…");
+
         try {
-          var workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+          // Read the file buffer
+          var buffer = await file.arrayBuffer();
+
+          // Yield to browser before heavy XLSX parse
+          await new Promise(function(r) { setTimeout(r, 0); });
+
+          var workbook = XLSX.read(buffer, { type: "array", cellDates: false });
           var sheet = workbook.Sheets["All Stores"] || workbook.Sheets[workbook.SheetNames[0]];
           if (!sheet) throw new Error("No worksheet found");
+
+          // Yield again after parse
+          await new Promise(function(r) { setTimeout(r, 0); });
+
           var rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false });
           var sections = [];
 
@@ -2825,19 +2838,14 @@
               var titleHasOnlyOneValue = titleValue && titleRow.slice(1).every(function (cell) {
                 return !String(cell || "").trim();
               });
-              if (titleHasOnlyOneValue) {
-                title = titleValue;
-                break;
-              }
+              if (titleHasOnlyOneValue) { title = titleValue; break; }
             }
             var sectionRows = [];
             for (var dataIndex = rowIndex + 1; dataIndex < rows.length; dataIndex++) {
               var dataRow = rows[dataIndex];
               if (String(dataRow[0]).trim().toUpperCase() === "SRL" && String(dataRow[1]).trim().toUpperCase() === "DATE") break;
               if (!String(dataRow[0]).trim() || String(dataRow[0]).trim().toLowerCase() === "no records found") continue;
-              if (dataRow.slice(1).every(function (cell) {
-                return !String(cell || "").trim();
-              })) continue;
+              if (dataRow.slice(1).every(function (cell) { return !String(cell || "").trim(); })) continue;
               sectionRows.push(dataRow);
             }
             sections.push({ title: title, rows: sectionRows });
@@ -2845,22 +2853,17 @@
 
           if (sections.length === 0) throw new Error("The workbook does not contain the exported pay-store columns.");
 
-          /* Resolve (or automatically create) a target store for every
-             section that has data. Sections without a title fall back to
-             the currently active store, if any. */
           var createdStoreNames = [];
-          var plan = []; /* [{ targetId, rows }] */
+          var plan = [];
 
           sections.forEach(function (section) {
             if (!section.rows.length) return;
             var storeName = (section.title || "").trim();
             var targetId = null;
-
             if (storeName) {
               var existing = findRegistryByName(storeName);
-              if (existing) {
-                targetId = existing.id;
-              } else {
+              if (existing) { targetId = existing.id; }
+              else {
                 var newReg = createRegistryFromName(storeName);
                 createdStoreNames.push(newReg.name);
                 targetId = newReg.id;
@@ -2868,18 +2871,12 @@
             } else if (activeTableId) {
               targetId = activeTableId;
             }
-
             if (targetId) plan.push({ targetId: targetId, rows: section.rows });
           });
 
           var totalRows = plan.reduce(function (sum, p) { return sum + p.rows.length; }, 0);
-          if (totalRows === 0) {
-            alert("No importable records were found in the workbook.");
-            return;
-          }
+          if (totalRows === 0) { alert("No importable records were found in the workbook."); return; }
 
-          /* Persist + render any newly created stores before inserting rows,
-             so their table DOM exists for addRowFromModal to write into. */
           if (createdStoreNames.length) {
             saveRegistriesToStorage();
             renderTabs();
@@ -2890,36 +2887,53 @@
           var previousType = typeInput ? typeInput.value : "receive";
           if (typeInput) typeInput.value = "receive";
 
-          plan.forEach(function (p) {
-            p.rows.forEach(function (dataRow) {
-              addRowFromModal(p.targetId, {
-                date: toIsoDate(String(dataRow[1] || "").trim()),
-                svcNo: String(dataRow[2] || "").trim(),
-                rank: String(dataRow[3] || "").trim(),
-                name: String(dataRow[4] || "").trim(),
-                dept: String(dataRow[5] || "").trim(),
-                qtyIn: Number(dataRow[7]) || 0,
-                qtyOut: Number(dataRow[8]) || 0,
-                remarks: String(dataRow[10] || "").trim(),
-              });
+          // Insert rows in async chunks of 50 to keep the UI alive
+          var allPlanRows = [];
+          plan.forEach(function(p) {
+            p.rows.forEach(function(dataRow) {
+              allPlanRows.push({ targetId: p.targetId, dataRow: dataRow });
             });
           });
 
-          if (typeInput) typeInput.value = previousType;
+          var CHUNK_SIZE = 50;
+          var offset = 0;
+          var imported = 0;
 
-          if (!activeTableId && registries.length) {
-            showTable(registries[0].id);
-          } else {
-            renderTabs();
-            renderTableCards();
-            showTable(activeTableId);
+          async function insertChunk() {
+            var chunk = allPlanRows.slice(offset, offset + CHUNK_SIZE);
+            chunk.forEach(function(item) {
+              addRowFromModal(item.targetId, {
+                date:    toIsoDate(String(item.dataRow[1] || "").trim()),
+                svcNo:   String(item.dataRow[2] || "").trim(),
+                rank:    String(item.dataRow[3] || "").trim(),
+                name:    String(item.dataRow[4] || "").trim(),
+                dept:    String(item.dataRow[5] || "").trim(),
+                qtyIn:   Number(item.dataRow[7]) || 0,
+                qtyOut:  Number(item.dataRow[8]) || 0,
+                remarks: String(item.dataRow[10] || "").trim(),
+              });
+              imported++;
+            });
+            offset += CHUNK_SIZE;
+            if (offset < allPlanRows.length) {
+              showToast("Importing… " + imported + " / " + totalRows);
+              await new Promise(function(r) { setTimeout(r, 0); });
+              await insertChunk();
+            } else {
+              // All done
+              if (typeInput) typeInput.value = previousType;
+              if (!activeTableId && registries.length) { showTable(registries[0].id); }
+              else { renderTabs(); renderTableCards(); showTable(activeTableId); }
+              var message = totalRows + " record(s) imported successfully!";
+              if (createdStoreNames.length) {
+                message += " " + createdStoreNames.length + " new store" + (createdStoreNames.length > 1 ? "s" : "") + " created (" + createdStoreNames.join(", ") + ").";
+              }
+              showToast(message);
+            }
           }
 
-          var message = totalRows + " record(s) imported successfully!";
-          if (createdStoreNames.length) {
-            message += " " + createdStoreNames.length + " new store" + (createdStoreNames.length > 1 ? "s" : "") + " created (" + createdStoreNames.join(", ") + ").";
-          }
-          showToast(message);
+          await insertChunk();
+
         } catch (error) {
           alert("Import failed: " + error.message);
         } finally {

@@ -1190,47 +1190,72 @@
       const file = event.target.files[0];
       event.target.value = '';
       if (!file) return;
+
+      // Show immediate feedback so UI doesn't appear frozen
+      showToast('info', 'Importing file, please wait…');
+
       const reader = new FileReader();
       reader.onload = () => {
-        try {
-          const rows = parseCSV(reader.result);
-          if (rows.length < 2) throw new Error('empty');
-          const header = rows[0].map(h => h.trim().toUpperCase());
-          const col = (...names) => header.findIndex(h => names.includes(h));
-          const idx = {
-            no: col('SVC NO.', 'SVC NO', 'SERVICE NO.', 'SERVICE NO', 'NO'),
-            rank: col('RANK'),
-            name: col('NAME'),
-            sex: col('SEX'),
-            arm: col('UNIT', 'ARM'),
-            loc: col('LOCATION', 'LOC'),
-            contactNo: col('CONTACT NO.', 'CONTACT NO', 'PHONE', 'PHONE NO.', 'PHONE NO'),
-            status: col('STATUS')
-          };
-          if (idx.no < 0 || idx.name < 0) throw new Error('Missing SVC NO. or NAME column');
+        // Yield to browser paint before heavy processing
+        setTimeout(() => {
+          try {
+            const rows = parseCSV(reader.result);
+            if (rows.length < 2) throw new Error('empty');
+            const header = rows[0].map(h => h.trim().toUpperCase());
+            const col = (...names) => header.findIndex(h => names.includes(h));
+            const idx = {
+              no: col('SVC NO.', 'SVC NO', 'SERVICE NO.', 'SERVICE NO', 'NO'),
+              rank: col('RANK'),
+              name: col('NAME'),
+              sex: col('SEX'),
+              arm: col('UNIT', 'ARM'),
+              loc: col('LOCATION', 'LOC'),
+              contactNo: col('CONTACT NO.', 'CONTACT NO', 'PHONE', 'PHONE NO.', 'PHONE NO'),
+              status: col('STATUS')
+            };
+            if (idx.no < 0 || idx.name < 0) throw new Error('Missing SVC NO. or NAME column');
 
-          const validStatuses = STATUS_CONFIG.map(s => s.value);
-          let added = 0, updated = 0;
-          rows.slice(1).forEach((r, i) => {
-            const get = k => idx[k] >= 0 ? (r[idx[k]] || '').trim() : '';
-            const no = get('no'), name = get('name');
-            if (!no || !name) return;
-            let sex = get('sex').toUpperCase().charAt(0);
-            if (sex !== 'M' && sex !== 'F') sex = '';
-            const status = validStatuses.find(v => v.toLowerCase() === get('status').toLowerCase()) || 'Present';
-            const importedArm = get('arm') || 'Army';
-            const rec = { no, rank: get('rank'), name, sex, arm: importedArm === 'DCE' ? 'DCS' : importedArm, loc: get('loc'), contactNo: get('contactNo'), status };
-            const existing = personnel.find(p => p.no === no);
-            if (existing) { Object.assign(existing, rec); updated++; }
-            else { personnel.push({ id: Date.now() + i, ...rec }); added++; }
-          });
-          saveData();
-          renderTable();
-          renderStatusGrid();
-          showToast('success', `Import complete: ${added} added, ${updated} updated`);
-        } catch (err) {
-          showToast('error', 'Import failed: check the CSV format');
-        }
+            const validStatuses = STATUS_CONFIG.map(s => s.value);
+            let added = 0, updated = 0;
+
+            // Process in chunks of 200 rows to keep UI responsive
+            const dataRows = rows.slice(1);
+            const CHUNK = 200;
+            let offset = 0;
+
+            function processChunk() {
+              const chunk = dataRows.slice(offset, offset + CHUNK);
+              chunk.forEach((r, i) => {
+                const get = k => idx[k] >= 0 ? (r[idx[k]] || '').trim() : '';
+                const no = get('no'), name = get('name');
+                if (!no || !name) return;
+                let sex = get('sex').toUpperCase().charAt(0);
+                if (sex !== 'M' && sex !== 'F') sex = '';
+                const status = validStatuses.find(v => v.toLowerCase() === get('status').toLowerCase()) || 'Present';
+                const importedArm = get('arm') || 'Army';
+                const rec = { no, rank: get('rank'), name, sex, arm: importedArm === 'DCE' ? 'DCS' : importedArm, loc: get('loc'), contactNo: get('contactNo'), status };
+                const existing = personnel.find(p => p.no === no);
+                if (existing) { Object.assign(existing, rec); updated++; }
+                else { personnel.push({ id: Date.now() + offset + i, ...rec }); added++; }
+              });
+              offset += CHUNK;
+              if (offset < dataRows.length) {
+                // Yield between chunks
+                setTimeout(processChunk, 0);
+              } else {
+                // All done — save and render
+                saveData();
+                renderTable();
+                renderStatusGrid();
+                showToast('success', `Import complete: ${added} added, ${updated} updated`);
+              }
+            }
+            processChunk();
+
+          } catch (err) {
+            showToast('error', 'Import failed: check the CSV format');
+          }
+        }, 0);
       };
       reader.readAsText(file);
     }
