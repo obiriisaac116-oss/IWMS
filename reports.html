@@ -365,6 +365,7 @@
       }
     </style>
     <link rel="stylesheet" href="responsive.css" />
+  <script src="server-check.js"></script>
   <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
   </head>
 
@@ -622,24 +623,27 @@
 
       /* ================= REPORTS: ACTIVITY DATA ================= */
       const activityList = document.getElementById('activityList');
-      const filterTabs = Array.from(document.querySelectorAll('.filter-tab'));
-      const searchInput = document.getElementById('searchInput');
-      const emptyState = document.getElementById('emptyState');
+      const filterTabs   = Array.from(document.querySelectorAll('.filter-tab'));
+      const searchInput  = document.getElementById('searchInput');
+      const emptyState   = document.getElementById('emptyState');
 
       let activeFilter = 'all';
-      let activityItems = [];
-      let allActivities = [];
-      let filteredActivities = [];
-      const PAGE_SIZE = 50;
-      let currentPage = 0;
+      let currentPage  = 0;
+      let totalOnServer = 0;
+      let isFetching   = false;
+      const PAGE_SIZE  = 50;
 
-      function readJson(key, fallback) {
-        try { return JSON.parse(memoryStore.getItem(key) || ''); } catch (e) { return fallback; }
+      /* ── Stats counts (accumulated across all pages) ── */
+      const _counts = { all: 0, clothing: 0, inventory: 0, printing: 0, jobscard: 0, personnel: 0 };
+
+      /* ── Helpers ── */
+      function getToken() {
+        try { return sessionStorage.getItem('dit_api_token') || ''; } catch (e) { return ''; }
       }
 
       function escapeHtml(value) {
-        return String(value == null ? '' : value).replace(/[&<>'"]/g, function (char) {
-          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char];
+        return String(value == null ? '' : value).replace(/[&<>'"]/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c];
         });
       }
 
@@ -661,169 +665,183 @@
         return datePart + ' \u2022 ' + timePart;
       }
 
-      function collectActivities() {
-        var activities = [];
-        var order = 0;
+      const ICON_MAP = {
+        clothing:  'fa-shirt',
+        inventory: 'fa-boxes-stacked',
+        printing:  'fa-print',
+        jobscard:  'fa-clipboard-list',
+        personnel: 'fa-users',
+      };
+      const LABEL_MAP = {
+        clothing:  'Clothing',
+        inventory: 'Inventories',
+        printing:  'Pay Printing',
+        jobscard:  'Jobs Card',
+        personnel: 'Personnel',
+      };
 
-        // Generic audit log — clothing, printing, jobscard, personnel all write here
-        readJson('dit_activity_log_v1', []).forEach(function (entry) {
-          var mod = entry.module || 'clothing';
-          var iconMap = { clothing: 'fa-shirt', inventory: 'fa-boxes-stacked', printing: 'fa-print', jobscard: 'fa-clipboard-list', personnel: 'fa-users' };
-          activities.push({
-            module: mod,
-            icon: iconMap[mod] || 'fa-circle-dot',
-            action: entry.action || 'Activity recorded',
-            detail: entry.detail || 'Change recorded',
-            office: entry.office || '',
-            itemName: entry.itemName || ((String(entry.detail || '').match(/^Item\s+(.+?)(?::| removed$)/i) || [])[1] || ''),
-            user: entry.user || 'Unknown user',
-            userId: entry.userId || entry.user || 'Unknown user',
-            date: entry.date || entry.createdAt || '',
-            quantity: entry.quantity,
-            order: order++
-          });
-        });
+      function buildItemHTML(entry) {
+        const mod      = entry.module || 'clothing';
+        const icon     = ICON_MAP[mod]  || 'fa-circle-dot';
+        const label    = LABEL_MAP[mod] || mod;
+        const quantity = entry.quantity ? ' | Qty: ' + escapeHtml(entry.quantity) : '';
+        const userBadge = entry.userId && entry.userId !== entry.user
+          ? ' (' + escapeHtml(entry.userId) + ')' : '';
 
-        // Clothing records (legacy direct reads)
-        var clothing = readJson('military_clothing_db_v6', {}) || {};
-        (clothing.records || []).forEach(function (record) {
-          activities.push({ module: 'clothing', icon: 'fa-shirt', action: 'Clothing record updated', detail: (record.name || record.svcNo || 'Personnel record'), user: record.userId || 'Unknown user', date: record.updatedAt || record.date || '', order: order++ });
-        });
-        (readJson('military_clothing_receipts_v1', []) || []).forEach(function (receipt) {
-          activities.push({ module: 'clothing', icon: 'fa-shirt', action: 'Clothing receipt recorded', detail: receipt.itemName || receipt.itemKey || 'Clothing item', user: receipt.userId || 'Unknown user', date: receipt.updatedAt || receipt.createdAt || receipt.date || '', quantity: receipt.qty, order: order++ });
-        });
+        const details = mod === 'inventory'
+          ? '<p><strong>Activity:</strong> ' + escapeHtml(entry.action) + '</p>' +
+            '<p class="activity-change"><strong>Office:</strong> ' + escapeHtml(entry.office || 'Office not recorded') + '</p>' +
+            '<p class="activity-change"><strong>Item:</strong> '   + escapeHtml(entry.itemName || 'Inventory item') + '</p>'
+          : '<p>' + escapeHtml(entry.action) + '</p>' +
+            '<p class="activity-change">' + escapeHtml(hideBooleanValues(entry.detail)) + '</p>';
 
-        // Inventory item history (legacy direct reads)
-        var inventory = readJson('dit_stores_data_v33', {}) || {};
-        var items = inventory.data && Array.isArray(inventory.data.items) ? inventory.data.items : [];
-        items.forEach(function (item) {
-          (item.history || []).forEach(function (entry) {
-            activities.push({ module: 'inventory', icon: 'fa-boxes-stacked', action: (entry.type || 'updated') + ' inventory', detail: item.name || 'Inventory item', office: item.office || '', itemName: item.name || 'Inventory item', user: entry.rcvdBy || item.receivedBy || 'Unknown user', date: entry.date || item.dateReceived || '', quantity: entry.qty, order: order++ });
-          });
-        });
-
-        // Pay-store activity (legacy fallback)
-        var auditLog = readJson('dit_activity_log_v1', []) || [];
-        if (!auditLog.some(function (entry) { return entry.module === 'printing'; })) {
-          (readJson('dit_pay_stores_activity_v1', []) || []).forEach(function (entry) {
-            activities.push({ module: 'printing', icon: 'fa-print', action: entry.action || 'Pay-store activity', detail: entry.detail || 'Pay-store record', user: entry.user || 'Unknown user', date: entry.date || entry.createdAt || '', quantity: entry.quantity, order: order++ });
-          });
-        }
-
-        return activities.sort(function (a, b) {
-          var diff = new Date(b.date || 0) - new Date(a.date || 0);
-          return diff !== 0 ? diff : b.order - a.order;
-        });
-      }
-
-      function buildItemHTML(activity) {
-        var quantity = activity.quantity ? ' | Qty: ' + escapeHtml(activity.quantity) : '';
-        var userBadge = activity.userId && activity.userId !== 'Unknown user' ? ' (' + escapeHtml(activity.userId) + ')' : '';
-        var activityDetails = activity.module === 'inventory'
-          ? '<p><strong>Activity:</strong> ' + escapeHtml(activity.action) + '</p><p class="activity-change"><strong>Office:</strong> ' + escapeHtml(activity.office || 'Office not recorded') + '</p><p class="activity-change"><strong>Item:</strong> ' + escapeHtml(activity.itemName || 'Inventory item') + '</p>'
-          : '<p>' + escapeHtml(activity.action) + '</p><p class="activity-change">' + escapeHtml(hideBooleanValues(activity.detail)) + '</p>';
-        return '<div class="activity-item" data-module="' + escapeHtml(activity.module) + '">' +
-          '<div class="activity-icon ' + escapeHtml(activity.module) + '"><i class="fa-solid ' + escapeHtml(activity.icon) + '"></i></div>' +
-          '<div class="activity-details">' + activityDetails +
-          '<div class="activity-meta"><span>' + escapeHtml(formatActivityDate(activity.date)) + '</span><span>By ' + escapeHtml(activity.user) + userBadge + quantity + '</span><span class="activity-module-tag ' + escapeHtml(activity.module) + '">' + escapeHtml({ clothing: 'Clothing', inventory: 'Inventories', printing: 'Pay Printing', jobscard: 'Jobs Card', personnel: 'Personnel' }[activity.module] || activity.module) + '</span></div></div>' +
+        return '<div class="activity-item" data-module="' + escapeHtml(mod) + '">' +
+          '<div class="activity-icon ' + escapeHtml(mod) + '"><i class="fa-solid ' + escapeHtml(icon) + '"></i></div>' +
+          '<div class="activity-details">' + details +
+          '<div class="activity-meta">' +
+            '<span>' + escapeHtml(formatActivityDate(entry.date)) + '</span>' +
+            '<span>By ' + escapeHtml(entry.user || 'Unknown') + userBadge + quantity + '</span>' +
+            '<span class="activity-module-tag ' + escapeHtml(mod) + '">' + escapeHtml(label) + '</span>' +
+          '</div></div>' +
           '<span class="activity-status">Recorded</span></div>';
       }
 
-      function renderActivities() {
-        allActivities = collectActivities();
-        activityItems = allActivities; // full reference for stats
-        currentPage = 0;
-        activityList.innerHTML = '';
-        applyFilters();
+      /* ── Fetch one page from /api/audit ── */
+      async function fetchPage(page, reset) {
+        if (isFetching) return;
+        isFetching = true;
+
+        const token  = getToken();
+        const module = activeFilter !== 'all' ? '&module=' + encodeURIComponent(activeFilter) : '';
+        const q      = searchInput.value.trim()
+          ? '&q=' + encodeURIComponent(searchInput.value.trim()) : '';
+        const url    = '/api/audit?page=' + page + '&limit=' + PAGE_SIZE + module + q;
+
+        try {
+          const res  = await fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + token },
+            credentials: 'include',
+          });
+
+          if (!res.ok) {
+            if (res.status === 403) {
+              emptyState.querySelector('p').textContent = 'Admin access required to view reports.';
+            }
+            emptyState.classList.add('show');
+            isFetching = false;
+            return;
+          }
+
+          const data = await res.json();   // { entries, total, page, limit }
+
+          if (reset) {
+            activityList.innerHTML = '';
+            // Reset counts
+            Object.keys(_counts).forEach(k => { _counts[k] = 0; });
+          }
+
+          totalOnServer = data.total || 0;
+          currentPage   = (data.page || 0) + 1;  // next page to load
+
+          if (data.entries && data.entries.length > 0) {
+            const frag = document.createDocumentFragment();
+            const tmp  = document.createElement('div');
+            tmp.innerHTML = data.entries.map(buildItemHTML).join('');
+            while (tmp.firstChild) frag.appendChild(tmp.firstChild);
+            activityList.appendChild(frag);
+
+            // Accumulate counts from this page
+            data.entries.forEach(function (e) {
+              const m = e.module;
+              _counts.all++;
+              if (_counts[m] !== undefined) _counts[m]++;
+            });
+          }
+
+          updateStats();
+          updatePager();
+
+          if (data.total === 0) {
+            emptyState.classList.add('show');
+          } else {
+            emptyState.classList.remove('show');
+          }
+
+        } catch (err) {
+          console.error('Audit fetch error:', err);
+          emptyState.querySelector('p').textContent = 'Could not load activity log. Check your connection.';
+          emptyState.classList.add('show');
+        } finally {
+          isFetching = false;
+        }
       }
 
-      function renderPage() {
-        const start = currentPage * PAGE_SIZE;
-        const end = start + PAGE_SIZE;
-        const chunk = filteredActivities.slice(start, end);
-        const frag = document.createDocumentFragment();
-        const tmp = document.createElement('div');
-        tmp.innerHTML = chunk.map(buildItemHTML).join('');
-        while (tmp.firstChild) frag.appendChild(tmp.firstChild);
-        activityList.appendChild(frag);
-        currentPage++;
-
-        const shown = Math.min(currentPage * PAGE_SIZE, filteredActivities.length);
-        const total = filteredActivities.length;
-        const wrap = document.getElementById('loadMoreWrap');
+      /* ── Pager ── */
+      function updatePager() {
+        const shown  = activityList.querySelectorAll('.activity-item').length;
+        const wrap   = document.getElementById('loadMoreWrap');
+        const btn    = document.getElementById('loadMoreBtn');
         const countEl = document.getElementById('loadMoreCount');
-        if (shown < total) {
-          wrap.style.display = 'block';
-          countEl.textContent = 'Showing ' + shown + ' of ' + total + ' activities';
+
+        if (shown < totalOnServer) {
+          wrap.style.display  = 'block';
+          btn.style.display   = 'inline-flex';
+          countEl.textContent = 'Showing ' + shown + ' of ' + totalOnServer + ' activities';
         } else {
-          wrap.style.display = total > PAGE_SIZE ? 'block' : 'none';
-          document.getElementById('loadMoreBtn').style.display = 'none';
-          if (total > PAGE_SIZE) countEl.textContent = 'All ' + total + ' activities shown';
+          btn.style.display = 'none';
+          if (totalOnServer > PAGE_SIZE) {
+            wrap.style.display  = 'block';
+            countEl.textContent = 'All ' + totalOnServer + ' activities shown';
+          } else {
+            wrap.style.display = 'none';
+          }
         }
       }
 
       function loadMore() {
-        renderPage();
+        fetchPage(currentPage, false);
       }
 
+      /* ── Stats ── */
       function updateStats() {
-        const counts = { all: allActivities.length, clothing: 0, inventory: 0, printing: 0, jobscard: 0, personnel: 0 };
-        allActivities.forEach(function (a) {
-          if (counts[a.module] !== undefined) counts[a.module]++;
-        });
-        document.getElementById('statAll').textContent = counts.all;
-        document.getElementById('statClothing').textContent = counts.clothing;
-        document.getElementById('statInventory').textContent = counts.inventory;
-        document.getElementById('statPrinting').textContent = counts.printing;
-        document.getElementById('statJobscard').textContent = counts.jobscard;
-        document.getElementById('statPersonnel').textContent = counts.personnel;
+        document.getElementById('statAll').textContent       = totalOnServer;
+        document.getElementById('statClothing').textContent  = _counts.clothing;
+        document.getElementById('statInventory').textContent = _counts.inventory;
+        document.getElementById('statPrinting').textContent  = _counts.printing;
+        document.getElementById('statJobscard').textContent  = _counts.jobscard;
+        document.getElementById('statPersonnel').textContent = _counts.personnel;
       }
 
-      function applyFilters() {
-        const query = searchInput.value.trim().toLowerCase();
-        filteredActivities = allActivities.filter(function (a) {
-          const matchesModule = activeFilter === 'all' || a.module === activeFilter;
-          const matchesSearch = !query || (a.action + a.detail + a.user + a.itemName + a.office).toLowerCase().includes(query);
-          return matchesModule && matchesSearch;
-        });
-
-        activityList.innerHTML = '';
-        currentPage = 0;
-        document.getElementById('loadMoreBtn').style.display = 'inline-flex';
-
-        if (filteredActivities.length === 0) {
-          emptyState.classList.add('show');
-          document.getElementById('loadMoreWrap').style.display = 'none';
-        } else {
-          emptyState.classList.remove('show');
-          renderPage();
-        }
-      }
-
-      filterTabs.forEach((tab) => {
-        tab.addEventListener('click', () => {
-          filterTabs.forEach((t) => {
+      /* ── Filter tabs ── */
+      filterTabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          filterTabs.forEach(function (t) {
             t.classList.remove('active');
             t.setAttribute('aria-selected', 'false');
           });
           tab.classList.add('active');
           tab.setAttribute('aria-selected', 'true');
           activeFilter = tab.dataset.filter;
-          applyFilters();
+          fetchPage(0, true);
         });
       });
 
-      searchInput.addEventListener('input', (function() {
+      /* ── Search (debounced) ── */
+      searchInput.addEventListener('input', (function () {
         var timer;
-        return function() {
+        return function () {
           clearTimeout(timer);
-          timer = setTimeout(applyFilters, 250);
+          timer = setTimeout(function () { fetchPage(0, true); }, 350);
         };
       })());
 
-      renderActivities();
-      updateStats();
-      applyFilters();
+      /* ── SSE: reload when another device adds an audit entry ── */
+      window.addEventListener('dit-audit-changed', function () {
+        fetchPage(0, true);
+      });
+
+      /* ── Initial load ── */
+      fetchPage(0, true);
     </script>
     <script src="module-background.js"></script>
   </body>

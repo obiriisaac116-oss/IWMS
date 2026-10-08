@@ -26,6 +26,7 @@ const PRECACHE_URLS = [
   './module-background.js',
   './message-admin.js',
   './print-helper.js',
+  './server-check.js',
 ];
 
 // ── Install: pre-cache all local assets ──────────────────────────────────────
