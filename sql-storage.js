@@ -94,6 +94,10 @@
   /* ═══════════════════════════════════════════════════════════════════════════
      AUTH
   ═══════════════════════════════════════════════════════════════════════════ */
+  // Don't run any API calls on the login page itself
+  var _isLoginPage = window.location.pathname === '/' ||
+                     window.location.pathname.endsWith('index.html');
+
   function getToken() {
     try { return sessionStorage.getItem('dit_api_token') || ''; } catch (e) { return ''; }
   }
@@ -267,12 +271,12 @@
           .then(function (data) {
             if (data && data.token) {
               setToken(data.token);
-              // Retry original request with new token
               opts.headers['Authorization'] = 'Bearer ' + data.token;
               return fetch(API_BASE + path, opts).then(function (r) { return r.json(); });
             }
-            sessionStorage.clear();
-            if (!window.location.pathname.endsWith('index.html') && window.location.pathname !== '/') {
+            // Only redirect if NOT already on the login page
+            if (!_isLoginPage) {
+              sessionStorage.clear();
               window.location.href = '/index.html';
             }
             return Promise.reject(new Error('Unauthorised'));
@@ -318,7 +322,8 @@
   }
 
   // Start SSE after a short delay (let the page finish loading first)
-  if (typeof window !== 'undefined') {
+  // Don't connect on the login page — no token yet
+  if (typeof window !== 'undefined' && !_isLoginPage) {
     window.addEventListener('DOMContentLoaded', function () {
       setTimeout(function () { _connectSSE(); _scheduleTokenRefresh(); }, 1500);
     });
@@ -329,6 +334,9 @@
   ═══════════════════════════════════════════════════════════════════════════ */
 
   window.sqlStorageGet = function (key) {
+    if (_isLoginPage) {
+      try { return Promise.resolve(localStorage.getItem(key)); } catch (e) { return Promise.resolve(null); }
+    }
     if (Object.prototype.hasOwnProperty.call(_cache, key)) {
       return Promise.resolve(_cache[key]);
     }
@@ -369,8 +377,11 @@
   window.sqlStorageSet = function (key, value) {
     var strVal = (value === null || value === undefined) ? null : String(value);
     _cache[key] = strVal;
-    // Write to IDB immediately (fast, offline-safe)
     if (strVal !== null) _idbSet(key, strVal).catch(function () {});
+    if (_isLoginPage) {
+      try { if (strVal !== null) localStorage.setItem(key, strVal); } catch (e) {}
+      return Promise.resolve();
+    }
     // Queue debounced API write
     return _queueWrite(key, strVal);
   };

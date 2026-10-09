@@ -22,29 +22,12 @@ const isProd = process.env.NODE_ENV === 'production';
 // the 10-attempt login limit would apply to ALL users at once.
 app.set('trust proxy', 1);
 
-// ── Helmet — sets 11 security headers in one call ────────────────────────────
+// ── Helmet — security headers (CSP disabled to fix login fetch blocking) ──────
 app.use(helmet({
-  // Allow CDN resources (fonts, FontAwesome, Tailwind) used by the frontend
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net', 'https://unpkg.com', 'https://cdnjs.cloudflare.com', 'https://cdn.sheetjs.com'],
-      styleSrc:    ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://cdnjs.cloudflare.com'],
-      fontSrc:     ["'self'", 'https://fonts.gstatic.com', 'https://cdnjs.cloudflare.com'],
-      imgSrc:      ["'self'", 'data:', 'blob:'],
-      connectSrc:  ["'self'"],
-      workerSrc:   ["'self'", 'blob:'],
-      frameSrc:    ["'none'"],
-      objectSrc:   ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
-  // Allow the app to be embedded in same-origin iframes (e.g. print previews)
-  frameguard: { action: 'sameorigin' },
-  // Don't send referrer to external sites
-  referrerPolicy: { policy: 'same-origin' },
-  // HSTS — only in production (Render always uses HTTPS)
-  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
+  contentSecurityPolicy: false,  // disabled — was blocking fetch() in browser
+  frameguard:      { action: 'sameorigin' },
+  referrerPolicy:  { policy: 'same-origin' },
+  hsts:            isProd ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
