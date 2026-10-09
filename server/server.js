@@ -88,6 +88,17 @@ app.use('/api/auth/login', loginLimiter);
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 
+// ── Debug: echo body (remove after login is confirmed working) ────────────────
+app.post('/api/debug-body', (req, res) => {
+  res.json({
+    body:         req.body,
+    bodyType:     typeof req.body,
+    contentType:  req.headers['content-type'],
+    hasBody:      !!req.body,
+    bodyKeys:     req.body ? Object.keys(req.body) : [],
+  });
+});
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',    authRoutes);
 app.use('/api/store',   storeRoutes);
