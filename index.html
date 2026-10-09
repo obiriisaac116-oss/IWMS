@@ -1993,6 +1993,13 @@
           });
           clearTimeout(wakeTimer);
           errorDiv.style.color = '';
+
+          // Guard: if response is not JSON (e.g. HTML error page), handle gracefully
+          const contentType = res.headers.get('content-type') || '';
+          if (!contentType.includes('application/json')) {
+            throw new Error('Server returned non-JSON response (status ' + res.status + '). The server may still be starting up — please wait 30 seconds and try again.');
+          }
+
           const data = await res.json();
 
           if (!res.ok) {
@@ -2022,9 +2029,19 @@
             (u) => (u.email.toLowerCase() === identifier || (u.username || '').toLowerCase() === identifier) && u.password === password
           );
           if (user) {
-            sessionStorage.setItem('loggedInUser', JSON.stringify(user));
-            sessionStorage.setItem('username', user.username || user.fullName || user.email);
-            if (isAdminRole(user.role)) sessionStorage.setItem('isAdminSession', 'true');
+            // Normalise to match the shape the API returns
+            const safeUser = {
+              _id:        user._id || user.id || ('local_' + Date.now()),
+              fullName:   user.fullName  || '',
+              username:   user.username  || '',
+              email:      user.email     || '',
+              role:       user.role      || 'User',
+              modules:    user.modules   || {},
+              department: user.department || '',
+            };
+            sessionStorage.setItem('loggedInUser', JSON.stringify(safeUser));
+            sessionStorage.setItem('username', safeUser.username || safeUser.fullName || safeUser.email);
+            if (isAdminRole(safeUser.role)) sessionStorage.setItem('isAdminSession', 'true');
             window.location.href = 'dashboard.html';
           } else {
             errorDiv.textContent   = 'Could not reach the server. Check your connection and try again.';

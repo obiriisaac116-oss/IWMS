@@ -371,7 +371,7 @@
 
   <body>
     <script src="page-loader.js"></script>
-    <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
+    <script>try{var _u=JSON.parse(sessionStorage.getItem('loggedInUser')||'null');if(!_u||(!_u.email&&!_u.username)){window.location.replace('index.html');}}catch(e){sessionStorage.clear();window.location.replace('index.html');}</script>
     <div class="module-background" aria-hidden="true"><canvas id="moduleBgCanvas"></canvas></div>
     <!-- ANIMATED BACKGROUND -->
     <div class="bg-layer" aria-hidden="true">

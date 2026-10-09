@@ -6604,7 +6604,7 @@ body::after {
 <body>
   <script src="page-loader.js"></script>
   <div id="printArea" style="display:none"></div>
-  <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
+  <script>try{var _u=JSON.parse(sessionStorage.getItem('loggedInUser')||'null');if(!_u||(!_u.email&&!_u.username)){window.location.replace('index.html');}}catch(e){sessionStorage.clear();window.location.replace('index.html');}</script>
   <div class="lightbox" id="lightbox">
     <div class="lightbox-overlay" id="lbOverlay"></div>
     <div class="lightbox-content">
