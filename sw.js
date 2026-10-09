@@ -8,7 +8,7 @@
  * On fetch: serve from cache, fall back to network, then update cache.
  */
 
-const CACHE_NAME = 'dit-inventory-v2';
+const CACHE_NAME = 'dit-inventory-v3';
 
 // All local files to pre-cache on install
 const PRECACHE_URLS = [
@@ -71,6 +71,23 @@ self.addEventListener('fetch', event => {
     return; // Don't intercept external APIs
   }
 
+  // ── HTML files: network-first so login always gets the latest code ─────────
+  if (event.request.headers.get('accept') &&
+      event.request.headers.get('accept').includes('text/html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200) {
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request)) // offline fallback
+    );
+    return;
+  }
+
+  // ── All other assets: cache-first, update in background ────────────────────
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) {
@@ -83,7 +100,6 @@ self.addEventListener('fetch', event => {
             return response;
           })
           .catch(() => { /* offline — cached version already served */ });
-        // Return cache immediately (stale-while-revalidate)
         void networkUpdate;
         return cached;
       }
@@ -99,8 +115,8 @@ self.addEventListener('fetch', event => {
           return response;
         })
         .catch(() => {
-          // Offline and not cached — return offline fallback for HTML requests
-          if (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html')) {
+          if (event.request.headers.get('accept') &&
+              event.request.headers.get('accept').includes('text/html')) {
             return caches.match('./index.html');
           }
         });
