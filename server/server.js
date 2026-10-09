@@ -51,6 +51,10 @@ app.use(helmet({
 const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
+// Always allow the Render service's own origin
+const SELF_ORIGIN = 'https://iwms-p1ru.onrender.com';
+if (!allowedOrigins.includes(SELF_ORIGIN)) allowedOrigins.push(SELF_ORIGIN);
+
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
