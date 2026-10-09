@@ -28,7 +28,12 @@ function setRefreshCookie(res, token) {
 // ── POST /api/auth/login ──────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
-    const body       = req.body || {};
+    // Belt-and-suspenders: handle both parsed body and raw text body
+    let body = req.body || {};
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch (_) { body = {}; }
+    }
+
     const identifier = String(body.identifier || '').trim().toLowerCase();
     const password   = String(body.password   || '');
 

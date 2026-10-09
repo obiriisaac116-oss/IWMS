@@ -61,7 +61,8 @@ app.use(cors({
 }));
 
 // ── Body parsing + cookies ────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb', strict: false }));
+app.use(express.text({ type: 'application/json', limit: '10mb' })); // fallback if Content-Type is mangled
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
