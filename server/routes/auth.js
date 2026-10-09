@@ -10,9 +10,11 @@ const isProd = process.env.NODE_ENV === 'production';
 
 // ── Token helpers ─────────────────────────────────────────────────────────────
 function signAccessToken(userId) {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is not set');
   return jwt.sign({ sub: userId, type: 'access' }, process.env.JWT_SECRET, { expiresIn: '15m' });
 }
 function signRefreshToken(userId) {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is not set');
   return jwt.sign({ sub: userId, type: 'refresh' }, process.env.JWT_SECRET, { expiresIn: '30d' });
 }
 function setRefreshCookie(res, token) {
@@ -80,8 +82,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
 
     res.json({ token: accessToken, user: user.toSafeObject() });
   } catch (err) {
-    console.error('Login error:', err);
-    // In production expose the message for debugging login issues
+    console.error('Login error:', err.message, err.stack);
     res.status(500).json({ error: err.message || 'Server error' });
   }
 });
