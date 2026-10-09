@@ -850,8 +850,8 @@
             </button>
           </div>
         </div>
-        <div id="loginError" class="error-msg">Invalid username/email or password.</div>
-        <button type="submit" class="enter-btn" style="width: 100%">
+        <div id="loginError" class="error-msg" style="display:none;font-size:0.88rem;font-weight:600;margin-top:10px;text-align:center;padding:8px 12px;border-radius:8px;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);"></div>
+        <button type="submit" id="loginSubmitBtn" class="enter-btn" style="width: 100%">
           Login
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -1971,84 +1971,85 @@
         const identifier = document.getElementById("loginUser").value.trim().toLowerCase();
         const password   = document.getElementById("loginPass").value;
         const errorDiv   = document.getElementById("loginError");
-        const btn        = e.target.querySelector('button[type="submit"]') || e.target.querySelector('button');
-        const originalBtnText = btn ? btn.innerHTML : '';
+        const btn        = document.getElementById("loginSubmitBtn") ||
+                           e.target.querySelector('button[type="submit"]') ||
+                           e.target.querySelector('button');
+
+        function showError(msg) {
+          errorDiv.textContent      = msg;
+          errorDiv.style.display    = 'block';
+          errorDiv.style.color      = '#dc2626';
+          errorDiv.style.background = 'rgba(220,38,38,0.08)';
+          errorDiv.style.border     = '1px solid rgba(220,38,38,0.2)';
+          if (btn) { btn.disabled = false; btn.textContent = 'Login'; }
+        }
+
+        function showInfo(msg) {
+          errorDiv.textContent      = msg;
+          errorDiv.style.display    = 'block';
+          errorDiv.style.color      = '#d97706';
+          errorDiv.style.background = 'rgba(217,119,6,0.08)';
+          errorDiv.style.border     = '1px solid rgba(217,119,6,0.2)';
+        }
 
         errorDiv.style.display = 'none';
         if (btn) { btn.disabled = true; btn.textContent = 'Signing in\u2026'; }
 
-        // Show a "waking up" message if server takes > 4s
-        let wakeTimer = setTimeout(() => {
-          errorDiv.textContent  = 'Server is waking up \u2014 please wait up to 60 seconds\u2026';
-          errorDiv.style.display = 'block';
-          errorDiv.style.color   = '#d97706';
+        // Show server-waking message after 4 seconds
+        const wakeTimer = setTimeout(() => {
+          showInfo('Server is waking up \u2014 this can take up to 60 seconds on first visit\u2026');
         }, 4000);
 
+        let res, data;
         try {
-          const res  = await fetch('/api/auth/login', {
-            method:  'POST',
+          res = await fetch('/api/auth/login', {
+            method:      'POST',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ identifier, password }),
+            headers:     { 'Content-Type': 'application/json' },
+            body:         JSON.stringify({ identifier, password }),
           });
+        } catch (networkErr) {
           clearTimeout(wakeTimer);
-          errorDiv.style.color = '';
-
-          // Guard: if response is not JSON (e.g. HTML error page), handle gracefully
-          const contentType = res.headers.get('content-type') || '';
-          if (!contentType.includes('application/json')) {
-            throw new Error('Server returned non-JSON response (status ' + res.status + '). The server may still be starting up — please wait 30 seconds and try again.');
-          }
-
-          const data = await res.json();
-
-          if (!res.ok) {
-            errorDiv.textContent   = data.error || 'Invalid username or password.';
-            errorDiv.style.display = 'block';
-            errorDiv.style.color   = '';
-            if (btn) { btn.disabled = false; btn.innerHTML = originalBtnText; }
-            return;
-          }
-
-          // Store JWT so sql-storage.js can attach it to every API call
-          sessionStorage.setItem('dit_api_token', data.token);
-          sessionStorage.setItem('loggedInUser',   JSON.stringify(data.user));
-          sessionStorage.setItem('username',        data.user.username || data.user.fullName || data.user.email);
-          if (data.user.role === 'Admin' || data.user.role === 'Administrator') {
-            sessionStorage.setItem('isAdminSession', 'true');
-          }
-          window.location.href = 'dashboard.html';
-
-        } catch (err) {
-          clearTimeout(wakeTimer);
-          errorDiv.style.color = '';
-          console.error('Login fetch error:', err);
-          // Fallback: try local user list (offline mode)
-          const users = await getUsers();
-          const user  = users.find(
-            (u) => (u.email.toLowerCase() === identifier || (u.username || '').toLowerCase() === identifier) && u.password === password
-          );
-          if (user) {
-            // Normalise to match the shape the API returns
-            const safeUser = {
-              _id:        user._id || user.id || ('local_' + Date.now()),
-              fullName:   user.fullName  || '',
-              username:   user.username  || '',
-              email:      user.email     || '',
-              role:       user.role      || 'User',
-              modules:    user.modules   || {},
-              department: user.department || '',
-            };
-            sessionStorage.setItem('loggedInUser', JSON.stringify(safeUser));
-            sessionStorage.setItem('username', safeUser.username || safeUser.fullName || safeUser.email);
-            if (isAdminRole(safeUser.role)) sessionStorage.setItem('isAdminSession', 'true');
-            window.location.href = 'dashboard.html';
-          } else {
-            errorDiv.textContent   = 'Could not reach the server. Check your connection and try again.';
-            errorDiv.style.display = 'block';
-            if (btn) { btn.disabled = false; btn.innerHTML = originalBtnText; }
-          }
+          showError('Cannot reach the server. Check your internet connection and try again.');
+          return;
         }
+
+        clearTimeout(wakeTimer);
+        errorDiv.style.color = '';
+
+        // Make sure we got JSON back, not an HTML error page
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          showError('Server error (status ' + res.status + '). Wait 30 seconds and try again.');
+          return;
+        }
+
+        try {
+          data = await res.json();
+        } catch (_) {
+          showError('Unexpected server response. Please try again.');
+          return;
+        }
+
+        if (!res.ok) {
+          showError(data.error || 'Invalid username or password.');
+          return;
+        }
+
+        // ── Success ──────────────────────────────────────────────────────────
+        if (!data.token || !data.user) {
+          showError('Server response missing token. Please try again.');
+          return;
+        }
+
+        sessionStorage.setItem('dit_api_token', data.token);
+        sessionStorage.setItem('loggedInUser',   JSON.stringify(data.user));
+        sessionStorage.setItem('username',        data.user.username || data.user.fullName || data.user.email);
+        if (data.user.role === 'Admin' || data.user.role === 'Administrator') {
+          sessionStorage.setItem('isAdminSession', 'true');
+        }
+        if (btn) btn.textContent = 'Redirecting\u2026';
+        window.location.href = 'dashboard.html';
       }
 
       (async function openAdminPanelFromNavigation() {
