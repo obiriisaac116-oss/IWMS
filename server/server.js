@@ -36,7 +36,7 @@ app.use(helmet({
       workerSrc:   ["'self'", 'blob:'],
       frameSrc:    ["'none'"],
       objectSrc:   ["'none'"],
-      upgradeInsecureRequests: isProd ? [] : null,
+      upgradeInsecureRequests: [],
     },
   },
   // Allow the app to be embedded in same-origin iframes (e.g. print previews)
