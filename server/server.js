@@ -140,16 +140,16 @@ async function start() {
     await AuditLog.collection.createIndex({ module: 1, date: -1 }, { background: true });
     console.log('Indexes ensured');
 
-    // ── Seed / reseed default admin ───────────────────────────────────────
-    // Delete any stale admin that may have been seeded with the wrong hash,
-    // then re-create so the bcrypt pre-save hook runs cleanly.
+    // ── Seed / fix default admin ──────────────────────────────────────────
+    // Always verify the admin password works. If not (stale hash from
+    // the Web Crypto experiment), delete and recreate with fresh bcrypt hash.
     const existingAdmin = await User.findOne({ email: 'admin@dit.local' });
     if (!existingAdmin) {
       await User.create({
         fullName:     'Admin',
         username:     'admin',
         email:        'admin@dit.local',
-        passwordHash: 'Password@123',   // pre-save hook bcrypt-hashes this
+        passwordHash: 'Password@123',
         role:         'Admin',
         modules: {
           clothing:    { view: true, add: true, edit: true, delete: true },
@@ -160,6 +160,29 @@ async function start() {
         },
       });
       console.log('Admin seeded  →  email: admin@dit.local  |  password: Password@123');
+    } else {
+      // Verify the stored hash still works — fix it if not
+      const ok = await existingAdmin.verifyPassword('Password@123');
+      if (!ok) {
+        await User.deleteOne({ email: 'admin@dit.local' });
+        await User.create({
+          fullName:     existingAdmin.fullName || 'Admin',
+          username:     existingAdmin.username || 'admin',
+          email:        'admin@dit.local',
+          passwordHash: 'Password@123',   // pre-save hook re-hashes
+          role:         existingAdmin.role || 'Admin',
+          modules:      existingAdmin.modules || {
+            clothing:    { view: true, add: true, edit: true, delete: true },
+            inventories: { view: true, add: true, edit: true, delete: true },
+            payStores:   { view: true, add: true, edit: true, delete: true },
+            jobscard:    { view: true, add: true, edit: true, delete: true },
+            personnel:   { view: true, add: true, edit: true, delete: true },
+          },
+        });
+        console.log('Admin password hash was stale — recreated with fresh bcrypt hash');
+      } else {
+        console.log('Admin account OK');
+      }
     }
 
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
