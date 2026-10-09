@@ -81,7 +81,8 @@ router.post('/login', validate(loginSchema), async (req, res) => {
     res.json({ token: accessToken, user: user.toSafeObject() });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: isProd ? 'Server error' : err.message });
+    // In production expose the message for debugging login issues
+    res.status(500).json({ error: err.message || 'Server error' });
   }
 });
 
