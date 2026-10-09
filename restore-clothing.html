@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restore Clothing Backup — IWMS Admin</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f4f6fa;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid rgba(0,0,0,0.08);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+      padding: 40px;
+      max-width: 520px;
+      width: 100%;
+    }
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; color: #1a1f36; }
+    .sub { color: #6b7394; font-size: 0.9rem; margin-bottom: 28px; }
+    label { display:block; font-size:0.85rem; font-weight:600; color:#1a1f36; margin-bottom:6px; }
+    input[type=text], input[type=password] {
+      width:100%; padding:10px 14px; border:1px solid #e2e6f0; border-radius:8px;
+      font-size:0.9rem; font-family:inherit; margin-bottom:16px; color:#1a1f36;
+    }
+    input:focus { outline:none; border-color:#00b87a; box-shadow:0 0 0 3px rgba(0,184,122,0.1); }
+    .file-area {
+      border: 2px dashed #e2e6f0;
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      margin-bottom: 20px;
+      transition: all 0.2s;
+    }
+    .file-area:hover, .file-area.over { border-color: #00b87a; background: rgba(0,184,122,0.04); }
+    .file-area input { display:none; }
+    .file-area .icon { font-size: 2rem; margin-bottom: 8px; }
+    .file-area p { color: #6b7394; font-size:0.88rem; }
+    .file-area strong { color: #1a1f36; }
+    .btn {
+      width:100%; padding:13px; background:#00b87a; color:#fff;
+      border:none; border-radius:10px; font-size:0.95rem; font-weight:600;
+      cursor:pointer; font-family:inherit; transition:all 0.2s;
+    }
+    .btn:hover { background:#009966; }
+    .btn:disabled { background:#ccc; cursor:not-allowed; }
+    .status {
+      margin-top:20px; padding:14px 16px; border-radius:10px;
+      font-size:0.88rem; font-weight:500; display:none;
+    }
+    .status.info    { background:#e0f2fe; color:#0369a1; display:block; }
+    .status.success { background:#dcfce7; color:#166534; display:block; }
+    .status.error   { background:#fee2e2; color:#991b1b; display:block; }
+    .result-table { margin-top: 12px; font-size:0.85rem; }
+    .result-table dt { font-weight:700; color:#166534; margin-top:6px; }
+    .result-table dd { margin-left:12px; color:#1a1f36; }
+    .steps { margin-bottom:24px; padding:14px 16px; background:#f8fafc; border-radius:10px; }
+    .steps ol { padding-left:18px; font-size:0.85rem; color:#6b7394; line-height:1.8; }
+    .steps ol li strong { color:#1a1f36; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Restore Clothing Backup</h1>
+  <p class="sub">Uploads your <code>clothing_backup_*.json</code> file directly to MongoDB via the IWMS API.</p>
+
+  <div class="steps">
+    <ol>
+      <li><strong>Server URL</strong> — defaults to <code>https://iwms-p1ru.onrender.com</code></li>
+      <li>Enter your <strong>admin email</strong> and <strong>password</strong></li>
+      <li>Select your <strong>backup JSON file</strong></li>
+      <li>Click <strong>Restore Backup</strong></li>
+    </ol>
+  </div>
+
+  <label>Server URL</label>
+  <input type="text" id="serverUrl" value="https://iwms-p1ru.onrender.com">
+
+  <label>Admin Email</label>
+  <input type="text" id="email" value="admin@dit.local">
+
+  <label>Password</label>
+  <input type="password" id="password" placeholder="Password@123">
+
+  <label>Backup File</label>
+  <div class="file-area" id="dropZone" onclick="document.getElementById('fileInput').click()"
+       ondragover="event.preventDefault();this.classList.add('over')"
+       ondragleave="this.classList.remove('over')"
+       ondrop="handleDrop(event)">
+    <input type="file" id="fileInput" accept=".json,application/json" onchange="handleFile(this.files[0])">
+    <div class="icon">📂</div>
+    <p id="fileLabel">Click or drag <strong>clothing_backup_*.json</strong> here</p>
+  </div>
+
+  <button class="btn" id="restoreBtn" onclick="doRestore()" disabled>Restore Backup</button>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+  var _file = null;
+
+  function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('dropZone').classList.remove('over');
+    var f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  }
+
+  function handleFile(f) {
+    if (!f || !f.name.endsWith('.json')) {
+      setStatus('error', 'Please select a .json backup file.');
+      return;
+    }
+    _file = f;
+    document.getElementById('fileLabel').innerHTML =
+      '✅ <strong>' + f.name + '</strong> (' + (f.size / 1024).toFixed(1) + ' KB)';
+    document.getElementById('restoreBtn').disabled = false;
+    setStatus('', '');
+  }
+
+  function setStatus(type, msg) {
+    var el = document.getElementById('status');
+    el.className = 'status ' + type;
+    el.innerHTML = msg;
+    if (!type) el.style.display = 'none';
+  }
+
+  async function doRestore() {
+    if (!_file) return;
+
+    var serverUrl = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+    var email     = document.getElementById('email').value.trim();
+    var password  = document.getElementById('password').value;
+
+    if (!email || !password) {
+      setStatus('error', 'Email and password are required.');
+      return;
+    }
+
+    var btn = document.getElementById('restoreBtn');
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+
+    // Step 1: Login
+    setStatus('info', '⏳ Logging in…');
+    var token;
+    try {
+      var lr = await fetch(serverUrl + '/api/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: email, password: password }),
+      });
+      var ld = await lr.json();
+      if (!lr.ok || !ld.token) throw new Error(ld.error || 'Login failed');
+      token = ld.token;
+    } catch (e) {
+      setStatus('error', '❌ Login failed: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Restore Backup';
+      return;
+    }
+
+    // Step 2: Read file
+    setStatus('info', '⏳ Reading backup file…');
+    var backupText;
+    try {
+      backupText = await _file.text();
+      var parsed = JSON.parse(backupText);
+      if (parsed.format !== 'clothing-inventory-backup')
+        throw new Error('Not a valid clothing-inventory-backup file');
+    } catch (e) {
+      setStatus('error', '❌ Invalid file: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Restore Backup';
+      return;
+    }
+
+    // Step 3: Upload
+    var pCount = parsed.personnel && parsed.personnel.records ? parsed.personnel.records.length : 0;
+    var iCount = parsed.clothingItems ? Object.keys(parsed.clothingItems).length : 0;
+    setStatus('info', '⏳ Uploading ' + pCount + ' personnel records and ' + iCount + ' clothing items…');
+
+    try {
+      var rr = await fetch(serverUrl + '/api/restore/clothing', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: backupText,
+      });
+      var rd = await rr.json();
+      if (!rr.ok || !rd.success) throw new Error(rd.error || 'Restore failed (status ' + rr.status + ')');
+
+      setStatus('success',
+        '✅ <strong>Backup restored successfully!</strong>' +
+        '<dl class="result-table">' +
+        '<dt>Personnel records</dt><dd>' + rd.personnelCount + '</dd>' +
+        '<dt>Clothing items</dt><dd>' + rd.itemCount + '</dd>' +
+        '<dt>Restored at</dt><dd>' + new Date(rd.restoredAt).toLocaleString() + '</dd>' +
+        '</dl>' +
+        '<p style="margin-top:12px;color:#166534;">You can now open <strong>clothing.html</strong> — all data is live.</p>'
+      );
+      btn.textContent = 'Done ✓';
+    } catch (e) {
+      setStatus('error', '❌ Restore failed: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Restore Backup';
+    }
+  }
+</script>
+</body>
+</html>
