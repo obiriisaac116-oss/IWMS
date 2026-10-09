@@ -383,6 +383,7 @@
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
 </head>
 <body>
+    <script src="page-loader.js"></script>
     <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
     <div class="module-background" aria-hidden="true"><canvas id="moduleBgCanvas"></canvas></div>
 
@@ -828,6 +829,7 @@
             });
         }
         renderJobsTable();
+        if (window.ditLoader) window.ditLoader.hide();
     }
 
     /* --- DASHBOARD & TABLE LOGIC --- */

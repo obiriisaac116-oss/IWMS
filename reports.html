@@ -370,6 +370,7 @@
   </head>
 
   <body>
+    <script src="page-loader.js"></script>
     <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
     <div class="module-background" aria-hidden="true"><canvas id="moduleBgCanvas"></canvas></div>
     <!-- ANIMATED BACKGROUND -->
@@ -767,10 +768,14 @@
             emptyState.classList.remove('show');
           }
 
+          // Hide loader after first successful fetch
+          if (window.ditLoader) window.ditLoader.hide();
+
         } catch (err) {
           console.error('Audit fetch error:', err);
           emptyState.querySelector('p').textContent = 'Could not load activity log. Check your connection.';
           emptyState.classList.add('show');
+          if (window.ditLoader) window.ditLoader.error('Could not load activity log. Check your connection.');
         } finally {
           isFetching = false;
         }

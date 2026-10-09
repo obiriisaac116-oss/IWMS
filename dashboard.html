@@ -648,6 +648,7 @@
   </head>
 
   <body>
+    <script src="page-loader.js"></script>
     <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
     <!-- ANIMATED BACKGROUND -->
     <div class="bg-layer" aria-hidden="true">
@@ -925,6 +926,7 @@
           document.getElementById("reportsCard").style.display = "flex";
         }
       })();
+      if (window.ditLoader) window.ditLoader.hide();
     </script>
     <script src="message-admin.js"></script>
   </body>

@@ -3308,6 +3308,7 @@
   <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
   </head>
   <body>
+    <script src="page-loader.js"></script>
     <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
     <div class="module-background" aria-hidden="true"><canvas id="moduleBgCanvas"></canvas></div>
     <div class="bg-layer no-print">
@@ -10502,6 +10503,7 @@
 
         document.querySelectorAll(".filter-select").forEach(updateFilterSelectStyle);
         refresh();
+        if (window.ditLoader) window.ditLoader.hide();
       });
     </script>
     <script src="message-admin.js"></script>

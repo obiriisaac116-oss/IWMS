@@ -6602,6 +6602,7 @@ body::after {
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
 </head>
 <body>
+  <script src="page-loader.js"></script>
   <div id="printArea" style="display:none"></div>
   <script>try { if (!JSON.parse(sessionStorage.getItem('loggedInUser') || 'null')) window.location.replace('index.html'); } catch (e) { sessionStorage.clear(); window.location.replace('index.html'); }</script>
   <div class="lightbox" id="lightbox">
@@ -11582,7 +11583,7 @@ body::after {
                 });
             }
 
-            document.addEventListener('DOMContentLoaded', () => { loadState(); initApp(); });
+            document.addEventListener('DOMContentLoaded', () => { loadState(); initApp(); if (window.ditLoader) window.ditLoader.hide(); });
 
             var activitySnapshot = null;
             function recordInventoryActivity(action, detail, office, itemName) {

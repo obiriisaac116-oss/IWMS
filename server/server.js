@@ -7,10 +7,11 @@ const cookieParser = require('cookie-parser');
 const rateLimit    = require('express-rate-limit');
 const helmet       = require('helmet');
 
-const authRoutes  = require('./routes/auth');
-const storeRoutes = require('./routes/store');
-const sseRoutes   = require('./routes/sse');
-const auditRoutes = require('./routes/audit');
+const authRoutes    = require('./routes/auth');
+const storeRoutes   = require('./routes/store');
+const sseRoutes     = require('./routes/sse');
+const auditRoutes   = require('./routes/audit');
+const restoreRoutes = require('./routes/restore');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -87,10 +88,11 @@ app.use('/api/auth/login', loginLimiter);
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/auth',  authRoutes);
-app.use('/api/store', storeRoutes);
-app.use('/api/events', sseRoutes);
-app.use('/api/audit', auditRoutes);
+app.use('/api/auth',    authRoutes);
+app.use('/api/store',   storeRoutes);
+app.use('/api/events',  sseRoutes);
+app.use('/api/audit',   auditRoutes);
+app.use('/api/restore', restoreRoutes);
 
 // ── Serve frontend static files ───────────────────────────────────────────────
 const frontendDir = path.join(__dirname, '..');
