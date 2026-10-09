@@ -9,7 +9,6 @@
  *   ?q=search                → text search across action/detail/user
  */
 const express     = require('express');
-const { z }       = require('zod');
 const AuditLog    = require('../models/AuditLog');
 const requireAuth = require('../middleware/auth');
 const { broadcastChange } = require('./sse');
@@ -17,26 +16,16 @@ const { broadcastChange } = require('./sse');
 const router = express.Router();
 router.use(requireAuth);
 
-const entrySchema = z.object({
-  module:   z.string().min(1).max(60),
-  action:   z.string().min(1).max(200),
-  detail:   z.string().max(1000).optional(),
-  office:   z.string().max(120).optional(),
-  itemName: z.string().max(200).optional(),
-  quantity: z.any().optional(),
-});
-
-function validate(schema) {
+function validate(entrySchema) {
   return (req, res, next) => {
-    const result = schema.safeParse(req.body);
-    if (!result.success) {
-      const msg = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
-      return res.status(400).json({ error: msg });
-    }
-    req.body = result.data;
+    const body = req.body || {};
+    if (!body.module || !body.action)
+      return res.status(400).json({ error: 'module and action are required' });
     next();
   };
 }
+
+const entrySchema = {}; // kept as placeholder — validation is inline above
 
 // ── POST /api/audit ───────────────────────────────────────────────────────────
 router.post('/', validate(entrySchema), async (req, res) => {

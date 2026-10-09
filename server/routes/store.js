@@ -1,5 +1,4 @@
 const express     = require('express');
-const { z }       = require('zod');
 const Store       = require('../models/Store');
 const requireAuth = require('../middleware/auth');
 const { broadcastChange } = require('./sse');
@@ -9,19 +8,12 @@ router.use(requireAuth);
 
 const isProd = process.env.NODE_ENV === 'production';
 
-// ── Zod validation ────────────────────────────────────────────────────────────
-const putSchema = z.object({
-  value: z.any(),
-  updatedAt: z.string().optional(), // for conflict resolution
-});
+// ── Zod removed — inline validation ──────────────────────────────────────────
+const putSchema = { validate: (body) => body && body.value !== undefined };
 function validate(schema) {
   return (req, res, next) => {
-    const result = schema.safeParse(req.body);
-    if (!result.success) {
-      const msg = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
-      return res.status(400).json({ error: msg });
-    }
-    req.body = result.data;
+    if (!req.body || req.body.value === undefined)
+      return res.status(400).json({ error: '`value` is required in request body' });
     next();
   };
 }
