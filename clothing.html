@@ -3193,6 +3193,14 @@
         }
         .user-avatar { width: 28px; height: 28px; font-size: 0.7rem; }
         .date-badge-row { display: none; }
+        /* Keep Navigate button visible — move it out of date-badge-row on mobile */
+        .nav-dropdown-wrap {
+          display: inline-block !important;
+          margin-bottom: 0;
+        }
+        .nav-toggle-btn {
+          display: inline-flex !important;
+        }
         .header-left h1 {
           font-size: 1.5rem;
         }
@@ -3348,42 +3356,43 @@
             <span>Hi:</span>
             <strong id="displayUsername">Guest</strong>
           </div>
+          <!-- Navigate always visible — outside date-badge-row -->
+          <div class="nav-dropdown-wrap" id="navDropdownWrap" style="margin-bottom: 0; align-self: center">
+            <button type="button" class="nav-toggle-btn no-print" id="navToggleBtn" onclick="toggleNavDropdown(event)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+              Navigate
+            </button>
+            <div class="nav-dropdown-menu no-print" id="navDropdownMenu">
+              <div class="nav-dropdown-profile">
+                <div class="nav-dropdown-avatar" id="navDropdownAvatar">DIT</div>
+                <div>
+                  <div class="nav-dropdown-profile-name" id="navDropdownName">Stores System</div>
+                  <div class="nav-dropdown-profile-role">Admin</div>
+                </div>
+              </div>
+              <a href="dashboard.html" class="nav-dropdown-item">Dashboard</a>
+              <a href="clothing.html" class="nav-dropdown-item active">Clothing</a>
+              <a href="inventories.html" class="nav-dropdown-item">Inventories</a>
+              <a href="pay-stores.html" class="nav-dropdown-item">Pay Stores</a>
+              <a href="jobscard.html" class="nav-dropdown-item">Jobs Card</a>
+              <a href="personnel.html" class="nav-dropdown-item">Personnel</a>
+              <a href="reports.html" class="nav-dropdown-item">Reports</a>
+              <a href="index.html?admin=1" onclick="sessionStorage.setItem('adminReturnUrl', window.location.href)" class="nav-dropdown-item" id="adminPanelNavItem" style="display: none">Admin Panel</a>
+              <div class="nav-dropdown-divider"></div>
+              <div class="nav-dropdown-divider"></div>
+              <button type="button" class="nav-dropdown-item logout" onclick="logoutUser()">Logout</button>
+            </div>
+          </div>
           <div class="date-badge-row">
             <div class="date-badge">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
               </svg>
               <span id="currentDate"></span>
-            </div>
-            <div class="nav-dropdown-wrap" id="navDropdownWrap" style="margin-bottom: 0; align-self: center">
-              <button type="button" class="nav-toggle-btn no-print" id="navToggleBtn" onclick="toggleNavDropdown(event)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-                Navigate
-              </button>
-              <div class="nav-dropdown-menu no-print" id="navDropdownMenu">
-                <div class="nav-dropdown-profile">
-                  <div class="nav-dropdown-avatar" id="navDropdownAvatar">DIT</div>
-                  <div>
-                    <div class="nav-dropdown-profile-name" id="navDropdownName">Stores System</div>
-                    <div class="nav-dropdown-profile-role">Admin</div>
-                  </div>
-                </div>
-                <a href="dashboard.html" class="nav-dropdown-item">Dashboard</a>
-                <a href="clothing.html" class="nav-dropdown-item active">Clothing</a>
-                <a href="inventories.html" class="nav-dropdown-item">Inventories</a>
-                <a href="pay-stores.html" class="nav-dropdown-item">Pay Stores</a>
-                <a href="jobscard.html" class="nav-dropdown-item">Jobs Card</a>
-                <a href="personnel.html" class="nav-dropdown-item">Personnel</a>
-                <a href="reports.html" class="nav-dropdown-item">Reports</a>
-                <a href="index.html?admin=1" onclick="sessionStorage.setItem('adminReturnUrl', window.location.href)" class="nav-dropdown-item" id="adminPanelNavItem" style="display: none">Admin Panel</a>
-                <div class="nav-dropdown-divider"></div>
-                <div class="nav-dropdown-divider"></div>
-                <button type="button" class="nav-dropdown-item logout" onclick="logoutUser()">Logout</button>
-              </div>
             </div>
           </div>
         </div>
@@ -10527,6 +10536,28 @@
         document.querySelectorAll(".filter-select").forEach(updateFilterSelectStyle);
         refresh();
         if (window.ditLoader) window.ditLoader.hide();
+
+        // ── Live sync: reload clothing data when another device saves ────────
+        var CLOTHING_KEYS = [CONFIG_KEY, DB_KEY, RECEIVE_LOG_KEY, ISSUE_LOG_KEY, SAVED_FORMS_KEY];
+        window.addEventListener('dit-data-changed', function(e) {
+          var changedKey = e.detail && e.detail.key;
+          if (!changedKey || !CLOTHING_KEYS.includes(changedKey)) return;
+          // Re-fetch the changed key and reload
+          if (window.sqlStorageGet) {
+            window.sqlStorageGet(changedKey).then(function(val) {
+              if (val !== null && val !== undefined) {
+                try { localStorage.setItem(changedKey, typeof val === 'string' ? val : JSON.stringify(val)); } catch(e2) {}
+              }
+              // Reload all clothing data
+              clothingConfig = loadClothingConfig();
+              loadData();
+              loadReceiveRecords();
+              loadIssueRecords();
+              recalculateCounters();
+              refresh();
+            }).catch(function() {});
+          }
+        });
       });
     </script>
     <script src="message-admin.js"></script>

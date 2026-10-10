@@ -312,12 +312,15 @@
       try {
         var data = JSON.parse(e.data);
         if (data.type === 'store' && data.key) {
-          // Evict cache so next read fetches fresh
+          // Evict ALL caches so next read fetches fresh from API
           delete _cache[data.key];
           _idbDel(data.key).catch(function () {});
+          // Also clear localStorage so sync code (clothing.html etc.) gets fresh data
+          try { localStorage.removeItem(data.key); } catch (_) {}
           _setStatus('synced');
+          // Dispatch a custom event so module pages can reload their data
+          window.dispatchEvent(new CustomEvent('dit-data-changed', { detail: { key: data.key } }));
         } else if (data.type === 'audit') {
-          // Reports page can listen for this custom event
           window.dispatchEvent(new CustomEvent('dit-audit-changed', { detail: data }));
         }
       } catch (_) {}
