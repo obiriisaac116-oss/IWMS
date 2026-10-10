@@ -272,15 +272,25 @@
             if (data && data.token) {
               setToken(data.token);
               opts.headers['Authorization'] = 'Bearer ' + data.token;
-              return fetch(API_BASE + path, opts).then(function (r) { return r.json(); });
+              return fetch(API_BASE + path, opts).then(function (r) {
+                if (!r.ok) return null;
+                var ct2 = r.headers.get('content-type') || '';
+                if (!ct2.includes('application/json')) return null;
+                return r.json();
+              });
             }
-            // Only redirect if NOT already on the login page
             if (!_isLoginPage) {
               sessionStorage.clear();
               window.location.href = '/index.html';
             }
             return Promise.reject(new Error('Unauthorised'));
           });
+      }
+      // Guard: only parse JSON if response is actually JSON
+      var ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        console.warn('[sql-storage] Non-JSON response from', path, '— status', res.status);
+        return null;
       }
       return res.json();
     });
@@ -351,6 +361,7 @@
               var fresh = typeof data.value === 'string' ? data.value : JSON.stringify(data.value);
               _cache[key] = fresh;
               _idbSet(key, fresh);
+              try { localStorage.setItem(key, fresh); } catch (e) {}
             }
           }).catch(function () {});
         return cached;
@@ -358,17 +369,24 @@
       // Fetch from API
       return apiFetch('GET', '/api/store/' + encodeURIComponent(key))
         .then(function (data) {
+          if (data === null) {
+            // apiFetch returned null = non-JSON or network issue
+            console.warn('[sql-storage] GET', key, '— null response from API');
+            return null;
+          }
           var val = (data && data.value !== undefined && data.value !== null)
             ? (typeof data.value === 'string' ? data.value : JSON.stringify(data.value))
             : null;
           if (val !== null) {
             _cache[key] = val;
             _idbSet(key, val);
+            // Also write to localStorage so sync code can read it
+            try { localStorage.setItem(key, val); } catch (e) {}
           }
           return val;
         })
-        .catch(function () {
-          // Full offline — return IDB/localStorage
+        .catch(function (err) {
+          console.warn('[sql-storage] GET', key, 'failed:', err && err.message);
           return _idbGet(key);
         });
     });
