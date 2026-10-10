@@ -10434,8 +10434,31 @@
       });
 
       /* ===== INITIALIZATION ===== */
-      document.addEventListener("DOMContentLoaded", function () {
+      document.addEventListener("DOMContentLoaded", async function () {
         initTheme();
+
+        // ── Prefetch clothing data from MongoDB before initialising ──────────
+        // memoryStore.getItem() is synchronous but sqlStorageGet() is async.
+        // We prefetch all keys and write the results into localStorage so that
+        // memoryStore can read them synchronously in loadClothingConfig/loadData.
+        if (window.sqlStorageGet) {
+          try {
+            if (window.ditLoader) window.ditLoader.message('Loading clothing data\u2026');
+            var keys = [CONFIG_KEY, DB_KEY, RECEIVE_LOG_KEY, ISSUE_LOG_KEY, SAVED_FORMS_KEY];
+            var vals = await Promise.all(keys.map(function(k){ return window.sqlStorageGet(k); }));
+            // Write directly into localStorage so memoryStore.getItem picks them up
+            keys.forEach(function(k, i) {
+              if (vals[i] !== null && vals[i] !== undefined) {
+                try {
+                  var str = typeof vals[i] === 'string' ? vals[i] : JSON.stringify(vals[i]);
+                  localStorage.setItem(k, str);
+                } catch(e) {}
+              }
+            });
+          } catch (prefetchErr) {
+            console.warn('Clothing prefetch error (non-fatal):', prefetchErr.message);
+          }
+        }
         var loginUser = null;
         try {
           loginUser = JSON.parse(sessionStorage.getItem("loggedInUser") || "null");

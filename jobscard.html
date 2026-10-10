@@ -799,7 +799,20 @@
     let canImportJobBackup = false;
 
     /* --- INITIALIZATION --- */
-    window.addEventListener('load', () => {
+    window.addEventListener('load', async () => {
+        // --- Prefetch job data from MongoDB ---
+        if (window.sqlStorageGet) {
+          try {
+            const val = await window.sqlStorageGet('dit_jobs_data');
+            if (val !== null && val !== undefined) {
+              try { localStorage.setItem('dit_jobs_data', typeof val === 'string' ? val : JSON.stringify(val)); } catch(e) {}
+            }
+            const ctr = await window.sqlStorageGet('ditJobCounter');
+            if (ctr !== null && ctr !== undefined) {
+              try { localStorage.setItem('ditJobCounter', String(ctr)); } catch(e) {}
+            }
+          } catch(e) { console.warn('Jobs prefetch error:', e.message); }
+        }
         // --- Access Control ---
         var _loginUser = null;
         try { _loginUser = JSON.parse(sessionStorage.getItem('loggedInUser') || 'null'); } catch(e) {}

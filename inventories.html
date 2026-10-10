@@ -11583,7 +11583,18 @@ body::after {
                 });
             }
 
-            document.addEventListener('DOMContentLoaded', () => { loadState(); initApp(); if (window.ditLoader) window.ditLoader.hide(); });
+            document.addEventListener('DOMContentLoaded', async () => {
+              // Prefetch inventory data from MongoDB before loading
+              if (window.sqlStorageGet) {
+                try {
+                  const val = await window.sqlStorageGet('dit_stores_data_v33');
+                  if (val !== null && val !== undefined) {
+                    try { localStorage.setItem('dit_stores_data_v33', typeof val === 'string' ? val : JSON.stringify(val)); } catch(e) {}
+                  }
+                } catch(e) { console.warn('Inventory prefetch error:', e.message); }
+              }
+              loadState(); initApp(); if (window.ditLoader) window.ditLoader.hide();
+            });
 
             var activitySnapshot = null;
             function recordInventoryActivity(action, detail, office, itemName) {

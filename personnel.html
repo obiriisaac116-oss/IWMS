@@ -762,8 +762,18 @@
     const _PERSONNEL_PAGE_SIZE = 100;
 
     // --- Initialization ---
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', async () => {
       updateLoggedInUserDisplay();
+
+      // Prefetch personnel data from MongoDB before loading
+      if (window.sqlStorageGet) {
+        try {
+          const val = await window.sqlStorageGet('dit_personnel_data');
+          if (val !== null && val !== undefined) {
+            try { localStorage.setItem('dit_personnel_data', typeof val === 'string' ? val : JSON.stringify(val)); } catch(e) {}
+          }
+        } catch(e) { console.warn('Personnel prefetch error:', e.message); }
+      }
 
       // --- Access Control ---
       var _loginUser = null;
