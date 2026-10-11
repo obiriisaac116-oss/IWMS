@@ -13445,10 +13445,102 @@ body::after {
             function capitalizeFirstCategoryWord(value) { const text = String(value || '').trim(); return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Uncategorized'; }
             if (document.getElementById('importBtn') && document.getElementById('importFileInput')) {
               document.getElementById('importBtn').addEventListener('click', () => { _pendingImportItems = []; document.getElementById('importFileInput').value = ''; document.getElementById('importFileName').textContent = 'No file chosen'; document.getElementById('importPreviewArea').style.display = 'none'; document.getElementById('importConfirmBtn').style.display = 'none'; openModal('importModal'); });
-              document.getElementById('importFileInput').addEventListener('change', function (e) { const file = e.target.files[0]; if (!file) return; document.getElementById('importFileName').textContent = file.name; _pendingImportItems = []; const ext = file.name.split('.').pop().toLowerCase(); if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') { const reader = new FileReader(); reader.onload = function (e) { processExcel(new Uint8Array(e.target.result)); }; reader.readAsArrayBuffer(file); } else if (ext === 'docx' || ext === 'doc') { const reader = new FileReader(); reader.onload = function (e) { if (ext === 'docx') processDocx(e.target.result); else processHTMLDoc(e.target.result); }; if (ext === 'docx') reader.readAsArrayBuffer(file); else reader.readAsText(file); } else { showToast('Unsupported file type.', 'error'); } });
+              document.getElementById('importFileInput').addEventListener('change', async function (e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                document.getElementById('importFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+                _pendingImportItems = [];
+                const ext = file.name.split('.').pop().toLowerCase();
+
+                // Show immediate feedback
+                showToast('Reading file, please wait…', 'info');
+                // Yield to browser so the toast renders before heavy processing
+                await new Promise(r => setTimeout(r, 30));
+
+                if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+                  try {
+                    const buffer = await file.arrayBuffer();
+                    // Yield again after file read
+                    await new Promise(r => setTimeout(r, 0));
+                    await processExcel(new Uint8Array(buffer));
+                  } catch (err) {
+                    console.error(err);
+                    showToast('Failed to read file: ' + (err.message || 'unknown error'), 'error');
+                  }
+                } else if (ext === 'docx' || ext === 'doc') {
+                  const reader = new FileReader();
+                  reader.onload = function (ev) {
+                    if (ext === 'docx') processDocx(ev.target.result);
+                    else processHTMLDoc(ev.target.result);
+                  };
+                  if (ext === 'docx') reader.readAsArrayBuffer(file);
+                  else reader.readAsText(file);
+                } else {
+                  showToast('Unsupported file type.', 'error');
+                }
+              });
             }
             function getImportColumn(row, names, fallback) { const keys = Object.keys(row); for (const name of names) { const key = keys.find(k => k.trim().toLowerCase() === name.toLowerCase()); if (key && String(row[key]).trim() !== '') return row[key]; } return fallback; }
-            function processExcel(data) { try { const workbook = XLSX.read(data, { type: 'array' }); const firstSheet = workbook.Sheets[workbook.SheetNames[0]]; const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: '' }); _pendingImportItems = jsonData.map(row => { const name = getImportColumn(row, ['Description', 'Item Name', 'Name'], ''); const qty = parseInt(getImportColumn(row, ['Qty', 'Quantity'], 0)); const department = getImportColumn(row, ['Department'], state.activeDept); const office = getImportColumn(row, ['Office', 'Location'], getOfficeDefaultForDept(department) || defaultOffice); const category = getImportColumn(row, ['Category', 'Category Name', 'Cat'], 'Uncategorized'); const serialNo = getImportColumn(row, ['Serial No.', 'Serial No', 'Serial Number', 'Serial', 'Serial(s)'], ''); const bodyNo = getImportColumn(row, ['Body No.', 'Body No', 'Body Number'], ''); const remarks = getImportColumn(row, ['Rmks', 'Remarks', 'Remark'], ''); const dofq = getImportColumn(row, ['D of Q', 'DofQ'], 'Each'); const itemClass = getImportColumn(row, ['Class'], 'G'); return { name: String(name).trim(), qty: isNaN(qty) ? 0 : qty, department: String(department).trim(), office: String(office).trim(), category: String(category).trim() || 'Uncategorized', serialNo: String(serialNo).trim(), bodyNo: String(bodyNo).trim(), dofq: String(dofq).trim(), itemClass: String(itemClass).trim().toUpperCase().startsWith('T') ? 'T' : 'G', type: 'serialized', isUs: /u\/s/i.test(String(remarks)), remarks: String(remarks).trim() }; }).filter(item => item.name && item.qty > 0); renderImportPreview(); } catch (err) { console.error(err); showToast('Failed to parse Excel file.', 'error'); } }
+
+            // Async chunked processExcel — processes rows in batches of 200 to keep UI alive
+            processExcel = async function (data) {
+              try {
+                showToast('Parsing spreadsheet…', 'info');
+                await new Promise(r => setTimeout(r, 0));
+
+                const workbook = XLSX.read(data, { type: 'array', cellDates: false });
+                await new Promise(r => setTimeout(r, 0));
+
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const allRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+                await new Promise(r => setTimeout(r, 0));
+
+                _pendingImportItems = [];
+                const CHUNK = 200;
+                for (let offset = 0; offset < allRows.length; offset += CHUNK) {
+                  const chunk = allRows.slice(offset, offset + CHUNK);
+                  chunk.forEach(row => {
+                    const name = getImportColumn(row, ['Description', 'Item Name', 'Name'], '');
+                    const qty = parseInt(getImportColumn(row, ['Qty', 'Quantity'], 0));
+                    const department = getImportColumn(row, ['Department'], state.activeDept);
+                    const office = getImportColumn(row, ['Office', 'Location'], getOfficeDefaultForDept(department) || defaultOffice);
+                    const category = getImportColumn(row, ['Category', 'Category Name', 'Cat'], 'Uncategorized');
+                    const serialNo = getImportColumn(row, ['Serial No.', 'Serial No', 'Serial Number', 'Serial', 'Serial(s)'], '');
+                    const bodyNo = getImportColumn(row, ['Body No.', 'Body No', 'Body Number'], '');
+                    const remarks = getImportColumn(row, ['Rmks', 'Remarks', 'Remark'], '');
+                    const dofq = getImportColumn(row, ['D of Q', 'DofQ'], 'Each');
+                    const itemClass = getImportColumn(row, ['Class'], 'G');
+                    if (!String(name).trim()) return;
+                    const qtyN = isNaN(qty) ? 0 : qty;
+                    if (qtyN <= 0) return;
+                    _pendingImportItems.push({
+                      name: String(name).trim(),
+                      qty: qtyN,
+                      department: String(department).trim(),
+                      office: String(office).trim(),
+                      category: String(category).trim() || 'Uncategorized',
+                      serialNo: String(serialNo).trim(),
+                      bodyNo: String(bodyNo).trim(),
+                      dofq: String(dofq).trim(),
+                      itemClass: String(itemClass).trim().toUpperCase().startsWith('T') ? 'T' : 'G',
+                      type: 'serialized',
+                      isUs: /u\/s/i.test(String(remarks)),
+                      remarks: String(remarks).trim()
+                    });
+                  });
+                  // Yield between chunks so browser stays responsive
+                  if (offset + CHUNK < allRows.length) {
+                    await new Promise(r => setTimeout(r, 0));
+                  }
+                }
+
+                renderImportPreview();
+                showToast('File parsed: ' + _pendingImportItems.length + ' items found.', 'success');
+              } catch (err) {
+                console.error('processExcel error:', err);
+                showToast('Failed to parse Excel file: ' + (err.message || 'unknown error'), 'error');
+              }
+            };
             function processDocx(arrayBuffer) { mammoth.convertToHtml({ arrayBuffer: arrayBuffer }).then(function (htmlResult) { const htmlItems = parseHTMLExportInternal(htmlResult.value); if (htmlItems.length > 0) { _pendingImportItems = htmlItems; renderImportPreview(); return; } return mammoth.extractRawText({ arrayBuffer: arrayBuffer }).then(function (textResult) { _pendingImportItems = parseRawTextExport(textResult.value); renderImportPreview(); }); }).catch(function (err) { console.error(err); showToast('Failed to parse DOCX file.', 'error'); }); }
             function processHTMLDoc(htmlString) { const htmlItems = parseHTMLExportInternal(htmlString); if (htmlItems.length > 0) { _pendingImportItems = htmlItems; } else { const parser = new DOMParser(); const doc = parser.parseFromString(htmlString, 'text/html'); _pendingImportItems = parseRawTextExport(doc.body.textContent || ''); } renderImportPreview(); }
             function detectDepartment(text) { const t = text.trim(); const lower = t.toLowerCase(); if (lower.includes('directorate') || lower.includes('inventory') || lower.includes('inventories')) return null; for (const dept of state.departments) { if (t.toUpperCase() === dept.toUpperCase()) return dept; } if (/^DIT$/i.test(t) || (/\bDIT\b/.test(t) && !/\bedit\b/i.test(t) && !/\bdigit\b/i.test(t) && t.length < 20)) return 'DIT'; return null; }
@@ -13462,7 +13554,82 @@ body::after {
             function extractUsCount(remarks) { if (!remarks) return 0; const match = remarks.toLowerCase().match(/(\d+)\s*u\/?s/); if (match) return parseInt(match[1]) || 1; if (remarks.toLowerCase().includes('u/s')) return 1; return 0; }
             function renderImportPreview() { const tbody = document.getElementById('importPreviewBody'); tbody.innerHTML = ''; if (_pendingImportItems.length === 0) { document.getElementById('importPreviewArea').style.display = 'none'; document.getElementById('importConfirmBtn').style.display = 'none'; showToast('No valid items found in file.', 'error'); return; } document.getElementById('importItemCount').innerText = _pendingImportItems.length; document.getElementById('importPreviewArea').style.display = 'block'; document.getElementById('importConfirmBtn').style.display = 'inline-block'; _pendingImportItems.forEach(item => { const tr = document.createElement('tr'); const usBadge = item.isUs ? ' <span style="color:var(--danger);font-weight:700;font-size:.7rem">U/S</span>' : ''; tr.innerHTML = '<td>' + escHtml(item.department) + '</td><td style="font-weight:600">' + escHtml(item.office) + '</td><td>' + escHtml(item.category) + '</td><td style="font-weight:600">' + escHtml(item.name) + usBadge + '</td><td style="text-align:center">' + item.qty + '</td><td>' + escHtml(item.dofq) + '</td><td style="text-align:center">' + getClassLabel(item.itemClass) + '</td>'; tbody.appendChild(tr); }); }
 
-            function confirmImport() { if (_pendingImportItems.length === 0) return; let addedCount = 0, mergedCount = 0; const today = new Date().toISOString().split('T')[0]; const detectedOffices = window._importedDetectedOffices || []; let officesCreated = 0; detectedOffices.forEach(o => { if (o.name && o.name.trim() && !state.data.offices.find(ex => ex.name === o.name && ex.dept === o.dept)) { state.data.offices.push({ name: o.name.trim(), dept: o.dept, isDefault: false }); officesCreated++; } }); delete window._importedDetectedOffices; _pendingImportItems.forEach(item => { if (!state.data.categories.find(c => c.name === item.category && c.dept === item.department)) state.data.categories.push({ name: item.category, id: 'cat_' + Date.now() + Math.random(), dept: item.department }); if (!state.data.offices.find(o => o.name === item.office && o.dept === item.department)) state.data.offices.push({ name: item.office, dept: item.department, isDefault: false }); const usCount = extractUsCount(item.remarks); const serials = []; for (let i = 0; i < item.qty; i++) serials.push(createNaSerial('')); let markedUs = 0; for (let i = serials.length - 1; i >= 0 && markedUs < usCount; i--) { serials[i].isUs = true; markedUs++; } const existing = state.data.items.find(i => i.name.toLowerCase() === item.name.toLowerCase() && i.category === item.category && i.department === item.department && i.office === item.office && i.type === 'serialized'); if (existing) { const esn = new Set(existing.serials.filter(s => !isNaSerial(s)).map(s => s.no.toLowerCase())); serials.forEach(ns => { if (isNaSerial(ns) || !esn.includes(ns.no.toLowerCase())) existing.serials.push(ns); }); addHistoryEntry(existing, { date: today, type: 'received', rcvdFrom: 'Import', rcvdBy: currentUser, qty: item.qty, note: 'Merged via import' + (item.remarks ? ' (' + item.remarks + ')' : '') }); mergedCount++; } else { const newItem = { id: 'itm_' + Date.now() + Math.random(), name: item.name, category: item.category, department: item.department, office: item.office, dofq: item.dofq, itemClass: item.itemClass, receivedFrom: 'Import', receivedBy: currentUser, dateReceived: today, type: 'serialized', serials: serials, history: [] }; addHistoryEntry(newItem, { date: today, type: 'received', rcvdFrom: 'Import', rcvdBy: currentUser, qty: item.qty, note: 'Initial entry via import' }); state.data.items.push(newItem); addedCount++; } }); saveState(); ensureDefaultStores(); refreshAll(); let msg = 'Import complete! ' + addedCount + ' new, ' + mergedCount + ' merged.'; if (officesCreated > 0) msg += ' ' + officesCreated + ' office(s) created.'; showToast(msg); closeModal('importModal'); }
+            async function confirmImport() {
+              if (_pendingImportItems.length === 0) return;
+
+              // Disable confirm button immediately
+              const btn = document.getElementById('importConfirmBtn');
+              if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+              showToast('Importing ' + _pendingImportItems.length + ' items, please wait…', 'info');
+              await new Promise(r => setTimeout(r, 0));
+
+              let addedCount = 0, mergedCount = 0;
+              const today = new Date().toISOString().split('T')[0];
+              const detectedOffices = window._importedDetectedOffices || [];
+              let officesCreated = 0;
+
+              // Create offices upfront
+              detectedOffices.forEach(o => {
+                if (o.name && o.name.trim() && !state.data.offices.find(ex => ex.name === o.name && ex.dept === o.dept)) {
+                  state.data.offices.push({ name: o.name.trim(), dept: o.dept, isDefault: false });
+                  officesCreated++;
+                }
+              });
+              delete window._importedDetectedOffices;
+
+              // Process in chunks of 100
+              const CHUNK = 100;
+              for (let offset = 0; offset < _pendingImportItems.length; offset += CHUNK) {
+                const chunk = _pendingImportItems.slice(offset, offset + CHUNK);
+                chunk.forEach(item => {
+                  if (!state.data.categories.find(c => c.name === item.category && c.dept === item.department))
+                    state.data.categories.push({ name: item.category, id: 'cat_' + Date.now() + Math.random(), dept: item.department });
+                  if (!state.data.offices.find(o => o.name === item.office && o.dept === item.department))
+                    state.data.offices.push({ name: item.office, dept: item.department, isDefault: false });
+
+                  const usCount = extractUsCount(item.remarks);
+                  const serials = [];
+                  for (let i = 0; i < item.qty; i++) serials.push(createNaSerial(''));
+                  let markedUs = 0;
+                  for (let i = serials.length - 1; i >= 0 && markedUs < usCount; i--) { serials[i].isUs = true; markedUs++; }
+
+                  const existing = state.data.items.find(i =>
+                    i.name.toLowerCase() === item.name.toLowerCase() &&
+                    i.category === item.category &&
+                    i.department === item.department &&
+                    i.office === item.office &&
+                    i.type === 'serialized'
+                  );
+                  if (existing) {
+                    const esn = new Set(existing.serials.filter(s => !isNaSerial(s)).map(s => s.no.toLowerCase()));
+                    serials.forEach(ns => { if (isNaSerial(ns) || !esn.has(ns.no.toLowerCase())) existing.serials.push(ns); });
+                    addHistoryEntry(existing, { date: today, type: 'received', rcvdFrom: 'Import', rcvdBy: currentUser, qty: item.qty, note: 'Merged via import' + (item.remarks ? ' (' + item.remarks + ')' : '') });
+                    mergedCount++;
+                  } else {
+                    const newItem = { id: 'itm_' + Date.now() + Math.random(), name: item.name, category: item.category, department: item.department, office: item.office, dofq: item.dofq, itemClass: item.itemClass, receivedFrom: 'Import', receivedBy: currentUser, dateReceived: today, type: 'serialized', serials: serials, history: [] };
+                    addHistoryEntry(newItem, { date: today, type: 'received', rcvdFrom: 'Import', rcvdBy: currentUser, qty: item.qty, note: 'Initial entry via import' });
+                    state.data.items.push(newItem);
+                    addedCount++;
+                  }
+                });
+
+                // Yield between chunks
+                if (offset + CHUNK < _pendingImportItems.length) {
+                  showToast('Processing… ' + Math.min(offset + CHUNK, _pendingImportItems.length) + ' / ' + _pendingImportItems.length, 'info');
+                  await new Promise(r => setTimeout(r, 0));
+                }
+              }
+
+              // Save and refresh after all chunks done
+              saveState();
+              ensureDefaultStores();
+              refreshAll();
+              let msg = 'Import complete! ' + addedCount + ' new, ' + mergedCount + ' merged.';
+              if (officesCreated > 0) msg += ' ' + officesCreated + ' office(s) created.';
+              showToast(msg, 'success');
+              closeModal('importModal');
+              if (btn) { btn.disabled = false; btn.textContent = 'Confirm Import'; }
+            }
             parseDocxTable = function (table, dept, office, items) {
               const rows = Array.from(table.querySelectorAll('tr'));
               const headerIndex = rows.findIndex(row => /description/i.test(row.textContent));

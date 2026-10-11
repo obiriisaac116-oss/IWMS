@@ -2818,8 +2818,14 @@
           return;
         }
 
+        // Size guard
+        var MB = file.size / 1024 / 1024;
+        if (MB > 15) {
+          if (!confirm('This file is ' + MB.toFixed(1) + ' MB. Large files may take time to process. Continue?')) return;
+        }
+
         // Show feedback immediately
-        showToast("Reading file, please wait…");
+        showToast("Reading file (" + MB.toFixed(1) + " MB), please wait…");
 
         try {
           // Read the file buffer

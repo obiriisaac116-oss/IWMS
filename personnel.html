@@ -1199,8 +1199,10 @@
       event.target.value = '';
       if (!file) return;
 
-      // Show immediate feedback so UI doesn't appear frozen
-      showToast('info', 'Importing file, please wait…');
+      // Size guard
+      const MB = file.size / 1024 / 1024;
+      if (MB > 5) showToast('info', 'Large file (' + MB.toFixed(1) + ' MB) — processing in batches…');
+      else showToast('info', 'Importing file, please wait…');
 
       const reader = new FileReader();
       reader.onload = () => {

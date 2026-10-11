@@ -9393,14 +9393,21 @@
 
       function processImportFile(file) {
         if (!file) return;
+
+        // Size guard — warn for very large files
+        const MB = file.size / 1024 / 1024;
+        if (MB > 10) {
+          showToast('Warning: large file (' + MB.toFixed(1) + ' MB). Processing may take a moment.', 'warning', 5000);
+        }
+
         var isExcel = file.name.toLowerCase().endsWith(".xlsx") || file.name.toLowerCase().endsWith(".xls");
         var isDocx = file.name.toLowerCase().endsWith(".docx");
         if (!isExcel && !isDocx) {
           showToast("Please select a valid Excel or Word file", "warning");
           return;
         }
-        document.getElementById("importFileName").textContent = file.name;
-        document.getElementById("importFileSize").textContent = formatBytes(file.size);
+        document.getElementById("importFileName").textContent = file.name + ' (' + MB.toFixed(1) + ' MB)';
+        document.getElementById("importFileSize").textContent = '';
         document.getElementById("importUploadPrompt").style.display = "none";
         document.getElementById("importUploadSelected").style.display = "flex";
         var reader;
