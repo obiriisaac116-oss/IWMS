@@ -500,8 +500,20 @@
         box-shadow: 0 12px 32px rgba(26, 32, 44, 0.18), 0 2px 8px rgba(26, 32, 44, 0.06);
         border: 1px solid var(--border-color);
         padding: 10px;
-        z-index: 200;
+        z-index: 9000;
         opacity: 0;
+        visibility: hidden;
+        transform: translateY(-6px);
+        transition: all 0.18s ease;
+      }
+      /* On small screens anchor to right so it doesn't go off-screen */
+      @media (max-width: 768px) {
+        .nav-dropdown-menu {
+          left: auto;
+          right: 0;
+          width: min(240px, calc(100vw - 24px));
+        }
+      }
         visibility: hidden;
         transform: translateY(-6px);
         transition: all 0.18s ease;

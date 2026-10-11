@@ -147,8 +147,17 @@ input, select, textarea {
   visibility: visible !important;
 }
 
-/* On mobile, ensure header-right shows nav even when date row hides */
+/* Nav dropdown — right-aligned on mobile so it never goes off-screen */
+.nav-dropdown-menu {
+  z-index: 9000 !important;
+}
+
 @media (max-width: 768px) {
+  .nav-dropdown-menu {
+    left: auto !important;
+    right: 0 !important;
+    width: min(240px, calc(100vw - 24px)) !important;
+  }
   .date-badge { display: none !important; }
   /* Keep the nav wrapper visible even inside date-badge-row */
   .date-badge-row .nav-dropdown-wrap,

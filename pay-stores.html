@@ -169,11 +169,19 @@
         box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.06);
         border: 1px solid var(--border-color);
         padding: 10px;
-        z-index: 200;
+        z-index: 9000;
         opacity: 0;
         visibility: hidden;
         transform: translateY(-6px);
         transition: all 0.18s ease;
+      }
+      /* On small screens anchor to right edge */
+      @media (max-width: 768px) {
+        .nav-dropdown-menu {
+          left: auto;
+          right: 0;
+          width: min(240px, calc(100vw - 24px));
+        }
       }
       .nav-dropdown-wrap.open .nav-dropdown-menu {
         opacity: 1;
