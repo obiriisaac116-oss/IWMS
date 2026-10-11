@@ -88,7 +88,7 @@
     el.setAttribute('aria-live', 'polite');
     el.setAttribute('aria-label', 'Loading');
     el.innerHTML =
-      '<div id="dit-loader-brand">DIT <span>Inventory</span></div>' +
+      '<div id="dit-loader-brand">DIT <span>IWMS</span></div>' +
       '<div id="dit-loader-ring"></div>' +
       '<div id="dit-loader-msg">'  + (message || 'Loading, please wait\u2026') + '</div>' +
       '<div id="dit-loader-err"></div>' +

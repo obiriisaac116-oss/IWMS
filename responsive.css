@@ -1,46 +1,353 @@
 /*
- * responsive.css — shared responsive overrides
- *
- * Each page already contains its own inline media queries.
- * This file is referenced by every page so it must exist to
- * avoid 404 errors. Add any cross-page responsive rules here.
+ * responsive.css — DIT IWMS shared responsive stylesheet
+ * Applied to every page. Page-specific overrides live in each HTML file.
  */
 
-/* Prevent horizontal overflow on every page */
+/* ── Reset & base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
   max-width: 100%;
   overflow-x: hidden;
 }
 
-/* Smooth scrolling everywhere */
-html {
-  scroll-behavior: smooth;
-  -webkit-text-size-adjust: 100%;
-}
-
-/* Touch-friendly tap targets */
-button, a, [role="button"] {
+/* ── Touch targets ──────────────────────────────────────────────────────── */
+button, a, [role="button"], label {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
-/* Prevent iOS input zoom (font-size < 16px triggers auto-zoom) */
+/* Minimum 44×44px tap target on mobile */
+@media (max-width: 768px) {
+  button, [role="button"], .btn, .nav-toggle-btn, .filter-tab {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ── iOS input zoom prevention ──────────────────────────────────────────── */
 input, select, textarea {
   font-size: max(16px, 1em);
 }
 
-/* Scrollbar styling — thin on all pages */
+/* ── Scrollbars — thin everywhere ───────────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 *::-webkit-scrollbar       { width: 5px; height: 5px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.32); }
 
-/* Safe area insets for notched phones */
-.header, header {
+/* ── Safe area insets for notched phones ────────────────────────────────── */
+.header, header, .main-header {
   padding-left:  max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
+}
+
+/* ── Saved-data indicator (#dit-save-status) ────────────────────────────── */
+#dit-save-status {
+  /* Sits above everything, won't overlap modals */
+  z-index: 9997 !important;
+  /* Bottom safe area on notched phones */
+  bottom: max(18px, env(safe-area-inset-bottom)) !important;
+}
+
+@media (max-width: 480px) {
+  #dit-save-status {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    text-align: center;
+    font-size: 0.72rem !important;
+  }
+}
+
+/* ── Server wake banner (#dit-wake-banner) ───────────────────────────────── */
+#dit-wake-banner {
+  font-size: 0.82rem !important;
+  padding: 8px 16px !important;
+}
+
+@media (max-width: 480px) {
+  #dit-wake-banner {
+    flex-wrap: wrap;
+    font-size: 0.76rem !important;
+    padding: 8px 12px !important;
+    gap: 8px !important;
+  }
+  #dit-wake-banner button { margin-left: 0 !important; }
+}
+
+/* ── Page loader (#dit-loader) ───────────────────────────────────────────── */
+#dit-loader {
+  padding: 24px;
+  text-align: center;
+}
+
+/* ── Tables — horizontal scroll on all screen sizes ────────────────────── */
+.table-scroll-wrapper,
+.table-wrapper,
+[class*="table-scroll"] {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+/* ── Modals — full-screen on mobile ─────────────────────────────────────── */
+@media (max-width: 600px) {
+  .modal-overlay,
+  .modal-content,
+  [class*="modal-overlay"] {
+    padding: 8px !important;
+  }
+
+  .modal-box,
+  .modal,
+  .modal-content {
+    max-height: 94vh !important;
+    overflow-y: auto !important;
+    border-radius: 12px !important;
+    width: calc(100vw - 16px) !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .modal-body,
+  [class*="modal-body"] {
+    padding: 16px !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .modal-actions,
+  .modal-footer {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .modal-actions button,
+  .modal-footer button {
+    width: 100% !important;
+  }
+}
+
+/* ── Navigation buttons — always visible ────────────────────────────────── */
+/* Applies to all pages that have a nav-toggle-btn */
+.nav-toggle-btn,
+.nav-dropdown-wrap {
+  display: inline-flex !important;
+  visibility: visible !important;
+}
+
+/* On mobile, ensure header-right shows nav even when date row hides */
+@media (max-width: 768px) {
+  .date-badge { display: none !important; }
+  /* Keep the nav wrapper visible even inside date-badge-row */
+  .date-badge-row .nav-dropdown-wrap,
+  .date-badge-row .nav-toggle-btn {
+    display: inline-flex !important;
+  }
+}
+
+/* ── Controls bars — wrap on mobile ─────────────────────────────────────── */
+.controls-bar,
+.table-header,
+.filter-bar,
+.header-actions,
+.top-bar-actions,
+.tab-nav {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .controls-bar,
+  .table-header,
+  .filter-bar {
+    gap: 8px !important;
+  }
+
+  .search-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  .tab-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-nav::-webkit-scrollbar { height: 3px; }
+}
+
+/* ── Content areas — padding on mobile ──────────────────────────────────── */
+@media (max-width: 768px) {
+  .content-area {
+    padding: 1rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .content-area {
+    padding: 0.75rem !important;
+  }
+}
+
+/* ── Typography clamp ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  h1 { font-size: clamp(1.2rem, 5vw, 1.8rem) !important; }
+  h2 { font-size: clamp(1rem, 4vw, 1.4rem) !important; }
+  h3 { font-size: clamp(0.95rem, 3.5vw, 1.2rem) !important; }
+}
+
+/* ── Buttons — compact on mobile ────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .btn, button.btn {
+    padding: 8px 12px !important;
+    font-size: 0.82rem !important;
+  }
+}
+
+/* ── Filter tabs — horizontal scroll instead of wrapping off-screen ─────── */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.filter-bar::-webkit-scrollbar { height: 3px; }
+.filter-tab { flex-shrink: 0; }
+
+/* Search always moves below tabs on mobile */
+@media (max-width: 768px) {
+  .search-input-wrap {
+    order: 10;
+    width: 100% !important;
+    flex-shrink: 0;
+    margin-left: 0 !important;
+  }
+  .search-input { width: 100% !important; }
+}
+
+/* ── Stats grids — responsive columns ───────────────────────────────────── */
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+}
+
+/* ── Card grids (dashboard) ─────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .dashboard {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 320px) {
+  .dashboard { grid-template-columns: 1fr !important; }
+}
+
+/* ── Activity items (reports) ───────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .activity-item {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .activity-status { display: none; }
+  .section-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+
+/* ── Toasts — centered on mobile ────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .toast-container {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: calc(100vw - 24px) !important;
+    top: calc(var(--header-height, 60px) + 10px) !important;
+  }
+  .toast {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 0.82rem !important;
+  }
+}
+
+/* ── Inventories sidebar overlay ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 280px !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    height: 100vh !important;
+    z-index: 100 !important;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease !important;
+  }
+  .sidebar.open {
+    transform: translateX(0) !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.18) !important;
+  }
+  .main {
+    margin-left: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ── Personnel table — horizontal scroll ────────────────────────────────── */
+.data-table {
+  width: 100%;
+}
+
+/* ── Pay-stores — tab nav scroll ────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .tab-nav {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* ── Print: hide UI chrome ───────────────────────────────────────────────── */
+@media print {
+  #dit-save-status,
+  #dit-wake-banner,
+  #dit-loader,
+  .server-check-banner {
+    display: none !important;
+  }
+}
+
+/* ── Focus rings — visible on keyboard nav ───────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #00b87a;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Prevent reduced-motion elements from animating ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:        0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration:       0.01ms !important;
+    scroll-behavior:           auto !important;
+  }
 }

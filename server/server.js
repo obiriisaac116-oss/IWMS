@@ -174,8 +174,6 @@ async function start() {
     }
 
     // ── One-time clothing backup seed ────────────────────────────────────────
-    // Loads clothing-seed.json on first deploy, writes it to MongoDB, then
-    // marks done so it never runs again. Safe to re-deploy — idempotent.
     try {
       const seedFile = require('path').join(__dirname, 'scripts/clothing-seed.json');
       const fs       = require('fs');
@@ -184,33 +182,47 @@ async function start() {
         if (!seedDone) {
           const backup = JSON.parse(fs.readFileSync(seedFile, 'utf8'));
           if (backup.format === 'clothing-inventory-backup') {
-            async function upsertOrg(key, value) {
-              await Store.findOneAndUpdate(
-                { key: 'org::' + key },
-                { $set: { value, updatedAt: new Date() } },
-                { upsert: true, new: true }
-              );
+            const itemCount      = backup.clothingItems ? Object.keys(backup.clothingItems).length : 0;
+            const personnelCount = backup.personnel && backup.personnel.records ? backup.personnel.records.length : 0;
+
+            if (itemCount === 0 || personnelCount === 0) {
+              console.error('Clothing seed: backup file appears empty — items:', itemCount, 'personnel:', personnelCount);
+            } else {
+              async function upsertOrg(key, value) {
+                await Store.findOneAndUpdate(
+                  { key: 'org::' + key },
+                  { $set: { value, updatedAt: new Date() } },
+                  { upsert: true, new: true }
+                );
+              }
+              await upsertOrg('military_clothing_config_v3', backup.clothingItems);
+              await upsertOrg('military_clothing_db_v6', {
+                records:     backup.personnel.records,
+                nextOfficer: backup.personnel.nextOfficer || 1,
+                nextSoldier: backup.personnel.nextSoldier || 1,
+              });
+              await upsertOrg('military_clothing_receipts_v1', Array.isArray(backup.receiveRecords) ? backup.receiveRecords : []);
+              await upsertOrg('military_clothing_issues_v1',   Array.isArray(backup.issueRecords)   ? backup.issueRecords   : []);
+              await upsertOrg('military_saved_forms_v3',       Array.isArray(backup.savedForms)     ? backup.savedForms     : []);
+              await Store.create({ key: 'org::_clothing_seed_done', value: new Date().toISOString() });
+              console.log(`Clothing seed done: ${personnelCount} personnel, ${itemCount} items`);
             }
-            await upsertOrg('military_clothing_config_v3', backup.clothingItems);
-            await upsertOrg('military_clothing_db_v6', {
-              records:     backup.personnel.records,
-              nextOfficer: backup.personnel.nextOfficer || 1,
-              nextSoldier: backup.personnel.nextSoldier || 1,
-            });
-            await upsertOrg('military_clothing_receipts_v1',
-              Array.isArray(backup.receiveRecords) ? backup.receiveRecords : []);
-            await upsertOrg('military_clothing_issues_v1',
-              Array.isArray(backup.issueRecords) ? backup.issueRecords : []);
-            await upsertOrg('military_saved_forms_v3',
-              Array.isArray(backup.savedForms) ? backup.savedForms : []);
-            // Mark as done so this never runs again
-            await Store.create({ key: 'org::_clothing_seed_done', value: new Date().toISOString() });
-            const pCount = backup.personnel.records.length;
-            const iCount = Object.keys(backup.clothingItems).length;
-            console.log(`Clothing seed done: ${pCount} personnel, ${iCount} items`);
           }
         } else {
-          console.log('Clothing seed: already done, skipping.');
+          // Verify the stored data is not empty — re-seed if it is
+          const config = await Store.findOne({ key: 'org::military_clothing_config_v3' }).lean();
+          const dbRec  = await Store.findOne({ key: 'org::military_clothing_db_v6' }).lean();
+          const itemCount = config && config.value ? Object.keys(config.value).length : 0;
+          const recCount  = dbRec && dbRec.value && dbRec.value.records ? dbRec.value.records.length : 0;
+
+          if (itemCount === 0 || recCount === 0) {
+            console.log('Clothing seed: data is empty — re-seeding...');
+            await Store.deleteOne({ key: 'org::_clothing_seed_done' });
+            // Will re-seed on next restart automatically
+            console.log('Seed marker removed — restart server to re-seed.');
+          } else {
+            console.log(`Clothing seed: already done (${recCount} personnel, ${itemCount} items)`);
+          }
         }
       }
     } catch (seedErr) {

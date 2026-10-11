@@ -609,26 +609,28 @@
         .welcome-section h1 { font-size: 1.8rem; }
         .live-clock { display: none; }
         .dashboard {
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
           gap: 14px;
         }
-        .card { padding: 24px 16px 20px; }
+        .card { padding: 22px 16px 18px; }
         .brand-text span { max-width: 160px; }
       }
 
       @media (max-width: 480px) {
         .header { padding: 0 12px; height: 60px; --header-height: 60px; }
         .brand-text { font-size: 1rem; }
-        .brand-text span { display: none; }   /* hide subtitle on tiny screens */
+        .brand-text span { display: none; }
         .logout-btn span { display: none; }
         .logout-btn { padding: 8px 12px; }
-        .dashboard { grid-template-columns: 1fr 1fr; gap: 12px; }
+        .dashboard { grid-template-columns: 1fr 1fr; gap: 10px; }
         .welcome-section h1 { font-size: 1.4rem; }
-        .welcome-section { margin-bottom: 20px; }
-        .card { padding: 20px 14px 16px; }
-        .card h3 { font-size: 1rem; }
-        .card p { font-size: 0.82rem; }
+        .welcome-section { margin-bottom: 18px; }
+        .card { padding: 18px 12px 14px; }
+        .card h3 { font-size: 0.95rem; }
+        .card p { font-size: 0.8rem; }
         .container { padding-left: 12px; padding-right: 12px; }
+        /* Card icon smaller on tiny screens */
+        .card-icon { width: 44px; height: 44px; font-size: 1.2rem; margin-bottom: 12px; }
       }
 
       @media (max-width: 360px) {
